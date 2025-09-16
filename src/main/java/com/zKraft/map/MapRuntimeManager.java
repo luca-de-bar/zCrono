@@ -7,28 +7,22 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.UUID;
 
 /**
- * Handles the runtime behaviour for maps, including countdowns and timing runs.
+ * Handles the runtime behaviour for maps, timing runs between start and end areas.
  */
 public class MapRuntimeManager implements Listener {
 
-    private static final int COUNTDOWN_SECONDS = 3;
     private static final double POINT_RADIUS = 1.5D;
 
-    private final JavaPlugin plugin;
     private final MapManager mapManager;
     private final java.util.Map<UUID, PlayerSession> sessions = new HashMap<>();
 
-    public MapRuntimeManager(JavaPlugin plugin, MapManager mapManager) {
-        this.plugin = plugin;
+    public MapRuntimeManager(MapManager mapManager) {
         this.mapManager = mapManager;
     }
 
@@ -42,118 +36,62 @@ public class MapRuntimeManager implements Listener {
         Player player = event.getPlayer();
         PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), key -> new PlayerSession());
 
+        if (session.running) {
+            handleRunningPlayer(event, player, session);
+            return;
+        }
+
         Map mapAtStart = findMapAtStart(to);
-        boolean insideStart = mapAtStart != null;
-
-        if (session.countdownTask != null) {
-            if (!insideStart || session.map != mapAtStart) {
-                cancelCountdown(player, session, ChatColor.RED + "Countdown annullato: sei uscito dall'area di partenza.");
-
-                if (insideStart && mapAtStart != null) {
-                    startCountdown(player, session, mapAtStart);
-                }
-            }
-            return;
-        }
-
-        if (session.running && session.map != null) {
-            handleActiveRun(event, player, session);
-            return;
-        }
-
-        if (!session.running && insideStart) {
-            startCountdown(player, session, mapAtStart);
+        if (mapAtStart != null && isEnteringArea(event, mapAtStart.getStart())) {
+            beginRun(player, session, mapAtStart);
         }
     }
 
-    private void handleActiveRun(PlayerMoveEvent event, Player player, PlayerSession session) {
-        Location to = event.getTo();
-        if (to == null) {
-            return;
-        }
-
+    private void handleRunningPlayer(PlayerMoveEvent event, Player player, PlayerSession session) {
         Map map = session.map;
-        Location end = map.getEnd();
-        if (end != null && isInsideArea(to, end, POINT_RADIUS)) {
-            finishRun(player, session);
+        if (map == null) {
+            session.running = false;
             return;
         }
 
-        Location from = event.getFrom();
         Location start = map.getStart();
-        if (start != null && !isInsideArea(from, start, POINT_RADIUS) && isInsideArea(to, start, POINT_RADIUS)) {
-            session.running = false;
-            startCountdown(player, session, map);
+        if (start != null && isEnteringArea(event, start)) {
+            player.sendMessage(ChatColor.YELLOW + "Cronometro azzerato, riparti!");
+            beginRun(player, session, map);
+            return;
+        }
+
+        Location end = map.getEnd();
+        if (end != null && isEnteringArea(event, end)) {
+            finishRun(player, session);
         }
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        PlayerSession session = sessions.remove(event.getPlayer().getUniqueId());
-        if (session != null) {
-            cancelCountdown(null, session, null);
-        }
+        sessions.remove(event.getPlayer().getUniqueId());
     }
 
     public void shutdown() {
-        for (PlayerSession session : sessions.values()) {
-            cancelCountdown(null, session, null);
-        }
         sessions.clear();
     }
 
-    private void startCountdown(Player player, PlayerSession session, Map map) {
+    private void beginRun(Player player, PlayerSession session, Map map) {
         if (map.getStart() == null || map.getEnd() == null) {
             player.sendMessage(ChatColor.RED + "La mappa \"" + map.getName() + "\" non è configurata correttamente.");
+            session.running = false;
+            session.map = null;
             return;
         }
 
-        cancelCountdown(null, session, null);
         session.map = map;
-        session.running = false;
-
-        session.countdownTask = new BukkitRunnable() {
-            private int secondsRemaining = COUNTDOWN_SECONDS;
-
-            @Override
-            public void run() {
-                if (!player.isOnline()) {
-                    cancelCountdown(null, session, null);
-                    cancel();
-                    return;
-                }
-
-                if (!isInsideArea(player.getLocation(), map.getStart(), POINT_RADIUS)) {
-                    cancelCountdown(player, session,
-                            ChatColor.RED + "Countdown annullato: sei uscito dall'area di partenza.");
-                    cancel();
-                    return;
-                }
-
-                if (secondsRemaining <= 0) {
-                    beginRun(player, session);
-                    cancel();
-                    return;
-                }
-
-                player.sendTitle(ChatColor.GOLD + "⏱", ChatColor.YELLOW + "La corsa inizia tra "
-                        + secondsRemaining + "...", 0, 25, 0);
-                secondsRemaining--;
-            }
-        }.runTaskTimer(plugin, 0L, 20L);
-    }
-
-    private void beginRun(Player player, PlayerSession session) {
-        session.countdownTask = null;
         session.running = true;
         session.runStartTime = System.nanoTime();
-        player.sendTitle(ChatColor.GREEN + "🏁 GO!", "", 0, 20, 10);
-        player.sendMessage(ChatColor.GREEN + "🏁 GO!");
+        player.sendMessage(ChatColor.GREEN + "Cronometro avviato per \"" + map.getName() + "\".");
     }
 
     private void finishRun(Player player, PlayerSession session) {
         session.running = false;
-        session.countdownTask = null;
         long elapsedNanos = System.nanoTime() - session.runStartTime;
         Duration duration = Duration.ofNanos(Math.max(elapsedNanos, 0L));
         String formatted = formatDuration(duration);
@@ -161,22 +99,6 @@ public class MapRuntimeManager implements Listener {
                 + "\" in " + ChatColor.GOLD + formatted + ChatColor.GREEN + ".");
         session.map = null;
         session.runStartTime = 0L;
-    }
-
-    private void cancelCountdown(Player player, PlayerSession session, String message) {
-        if (session.countdownTask != null) {
-            session.countdownTask.cancel();
-            session.countdownTask = null;
-        }
-
-        if (player != null && message != null && !message.isEmpty()) {
-            player.sendMessage(message);
-            player.sendTitle("", "", 0, 0, 0);
-        }
-
-        if (!session.running) {
-            session.map = null;
-        }
     }
 
     private Map findMapAtStart(Location location) {
@@ -212,6 +134,20 @@ public class MapRuntimeManager implements Listener {
         return dx * dx + dy * dy + dz * dz <= radius * radius;
     }
 
+    private boolean isEnteringArea(PlayerMoveEvent event, Location center) {
+        if (center == null) {
+            return false;
+        }
+
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (to == null) {
+            return false;
+        }
+
+        return !isInsideArea(from, center, POINT_RADIUS) && isInsideArea(to, center, POINT_RADIUS);
+    }
+
     private String formatDuration(Duration duration) {
         long totalMillis = duration.toMillis();
         long minutes = totalMillis / 60000;
@@ -222,7 +158,6 @@ public class MapRuntimeManager implements Listener {
 
     private static class PlayerSession {
         private Map map;
-        private BukkitTask countdownTask;
         private boolean running;
         private long runStartTime;
     }

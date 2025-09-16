@@ -8,7 +8,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -51,9 +50,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 break;
             case "setend":
                 handleSetPoint(sender, label, args, false);
-                break;
-            case "addcheckpoint":
-                handleAddCheckpoint(sender, label, args);
                 break;
             case "map":
                 handleMapSubcommand(sender, label, args);
@@ -141,52 +137,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void handleAddCheckpoint(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage(ChatColor.RED + "Solo un giocatore può usare questo comando.");
-            return;
-        }
-
-        if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0]
-                    + " <nome> [radius]");
-            return;
-        }
-
-        String mapName = args[1];
-        Map map = manager.getMap(mapName);
-        if (map == null) {
-            sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
-            return;
-        }
-
-        double radius = 0.0;
-        if (args.length >= 3) {
-            try {
-                radius = Double.parseDouble(args[2]);
-            } catch (NumberFormatException exception) {
-                sender.sendMessage(ChatColor.RED + "Il radius deve essere un numero.");
-                return;
-            }
-
-            if (radius < 2 || radius > 5) {
-                sender.sendMessage(ChatColor.RED + "Il radius deve essere compreso tra 2 e 5 blocchi.");
-                return;
-            }
-        }
-
-        Location location = createCheckpointLocation(player);
-        manager.addCheckpoint(mapName, new MapCheckpoint(location, radius));
-
-        if (radius == 0) {
-            sender.sendMessage(ChatColor.GREEN + "Checkpoint a blocco singolo aggiunto alla mappa \""
-                    + mapName + "\".");
-        } else {
-            sender.sendMessage(ChatColor.GREEN + "Checkpoint con radius " + radius + " aggiunto alla mappa \""
-                    + mapName + "\".");
-        }
-    }
-
     private void handleList(CommandSender sender) {
         List<String> names = manager.getMapNames();
         if (names.isEmpty()) {
@@ -214,7 +164,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.GOLD + "Informazioni per \"" + map.getName() + "\":");
         sender.sendMessage(ChatColor.YELLOW + "Start: " + ChatColor.WHITE + formatLocation(map.getStart()));
         sender.sendMessage(ChatColor.YELLOW + "End: " + ChatColor.WHITE + formatLocation(map.getEnd()));
-        sender.sendMessage(ChatColor.YELLOW + "Checkpoints: " + ChatColor.WHITE + map.getCheckpoints().size());
     }
 
     private void sendUsage(CommandSender sender, String label) {
@@ -227,23 +176,10 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 + ChatColor.GRAY + " - imposta il punto di partenza");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " setend <nome>"
                 + ChatColor.GRAY + " - imposta il punto finale");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " addcheckpoint <nome> [radius]"
-                + ChatColor.GRAY + " - aggiunge un checkpoint");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " map list"
                 + ChatColor.GRAY + " - mostra le mappe configurate");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " info <nome>"
                 + ChatColor.GRAY + " - mostra i dettagli della mappa");
-    }
-
-    private Location createCheckpointLocation(Player player) {
-        Location raw = player.getLocation();
-        Location location = new Location(raw.getWorld(),
-                raw.getBlockX() + 0.5,
-                raw.getBlockY() + 0.5,
-                raw.getBlockZ() + 0.5);
-        location.setYaw(0.0f);
-        location.setPitch(0.0f);
-        return location;
     }
 
     private String formatLocation(Location location) {
@@ -265,7 +201,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("create", "delete", "remove", "setstart",
-                    "setend", "addcheckpoint", "map", "info");
+                    "setend", "map", "info");
             return subCommands.stream()
                     .filter(sub -> sub.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
@@ -286,17 +222,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                             .startsWith(args[1].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
         }
-
-        if (args.length == 3 && args[0].equalsIgnoreCase("addcheckpoint")) {
-            List<String> suggestions = new ArrayList<>();
-            for (int radius = 2; radius <= 5; radius++) {
-                suggestions.add(String.valueOf(radius));
-            }
-            return suggestions.stream()
-                    .filter(value -> value.startsWith(args[2]))
-                    .collect(Collectors.toList());
-        }
-
         return Collections.emptyList();
     }
 }

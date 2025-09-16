@@ -1,8 +1,6 @@
 package com.zKraft.map;
 
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -54,23 +52,6 @@ public class MapManager {
             Location end = LocationSerializer.readLocation(mapSection.getConfigurationSection("end"));
             map.setEnd(end);
 
-            List<java.util.Map<?, ?>> checkpointList = mapSection.getMapList("checkpoints");
-            for (java.util.Map<?, ?> rawCheckpoint : checkpointList) {
-                String worldName = asString(rawCheckpoint.get("world"));
-                World world = worldName != null ? Bukkit.getWorld(worldName) : null;
-                double x = asDouble(rawCheckpoint.get("x"));
-                double y = asDouble(rawCheckpoint.get("y"));
-                double z = asDouble(rawCheckpoint.get("z"));
-                Object rawYaw = rawCheckpoint.containsKey("yaw") ? rawCheckpoint.get("yaw") : 0.0;
-                Object rawPitch = rawCheckpoint.containsKey("pitch") ? rawCheckpoint.get("pitch") : 0.0;
-                float yaw = (float) asDouble(rawYaw);
-                float pitch = (float) asDouble(rawPitch);
-                double radius = asDouble(rawCheckpoint.get("radius"));
-
-                Location location = new Location(world, x, y, z, yaw, pitch);
-                map.addCheckpoint(new MapCheckpoint(location, radius));
-            }
-
             maps.put(normalizeKey(mapName), map);
         }
     }
@@ -91,26 +72,6 @@ public class MapManager {
             if (map.getEnd() != null) {
                 ConfigurationSection endSection = mapSection.createSection("end");
                 LocationSerializer.writeLocation(endSection, map.getEnd());
-            }
-
-            if (!map.getCheckpoints().isEmpty()) {
-                List<java.util.Map<String, Object>> checkpointList = new ArrayList<>();
-
-                for (MapCheckpoint checkpoint : map.getCheckpoints()) {
-                    java.util.Map<String, Object> checkpointSection = new LinkedHashMap<>();
-                    Location location = checkpoint.getLocation();
-                    World world = location.getWorld();
-                    checkpointSection.put("world", world != null ? world.getName() : null);
-                    checkpointSection.put("x", location.getX());
-                    checkpointSection.put("y", location.getY());
-                    checkpointSection.put("z", location.getZ());
-                    checkpointSection.put("yaw", location.getYaw());
-                    checkpointSection.put("pitch", location.getPitch());
-                    checkpointSection.put("radius", checkpoint.getRadius());
-                    checkpointList.add(checkpointSection);
-                }
-
-                mapSection.set("checkpoints", checkpointList);
             }
         }
 
@@ -175,29 +136,7 @@ public class MapManager {
         save();
     }
 
-    public void addCheckpoint(String name, MapCheckpoint checkpoint) {
-        Map map = getMap(name);
-        if (map == null) {
-            logger.warning("Attempted to add checkpoint for unknown map " + name);
-            return;
-        }
-
-        map.addCheckpoint(checkpoint);
-        save();
-    }
-
     private static String normalizeKey(String key) {
         return key.toLowerCase(Locale.ROOT);
-    }
-
-    private static String asString(Object value) {
-        return value != null ? String.valueOf(value) : null;
-    }
-
-    private static double asDouble(Object value) {
-        if (value instanceof Number number) {
-            return number.doubleValue();
-        }
-        return 0.0;
     }
 }

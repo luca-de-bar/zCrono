@@ -16,7 +16,7 @@ public final class zCrono extends JavaPlugin {
         mapManager = new MapManager(this);
         mapManager.load();
 
-        runtimeManager = new MapRuntimeManager(this, mapManager);
+        runtimeManager = new MapRuntimeManager(mapManager);
         getServer().getPluginManager().registerEvents(runtimeManager, this);
 
         PluginCommand command = getCommand("zcrono");
