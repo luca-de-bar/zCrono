@@ -1,16 +1,16 @@
-package com.zKraft.parkour;
+package com.zKraft.map;
 
 import org.bukkit.Location;
 
 /**
- * Represents a checkpoint inside a parkour map.
+ * Represents a checkpoint inside a configured map.
  */
-public class ParkourCheckpoint {
+public class MapCheckpoint {
 
     private final Location location;
     private final double radius;
 
-    public ParkourCheckpoint(Location location, double radius) {
+    public MapCheckpoint(Location location, double radius) {
         this.location = location;
         this.radius = radius;
     }

@@ -1,4 +1,4 @@
-package com.zKraft.parkour;
+package com.zKraft.map;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -15,13 +15,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-public class ParkourCommand implements CommandExecutor, TabCompleter {
+public class MapCommand implements CommandExecutor, TabCompleter {
 
     private static final String PERMISSION = "zcrono.admin";
 
-    private final ParkourManager manager;
+    private final MapManager manager;
 
-    public ParkourCommand(ParkourManager manager) {
+    public MapCommand(MapManager manager) {
         this.manager = manager;
     }
 
@@ -55,8 +55,8 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
             case "addcheckpoint":
                 handleAddCheckpoint(sender, label, args);
                 break;
-            case "list":
-                handleList(sender);
+            case "map":
+                handleMapSubcommand(sender, label, args);
                 break;
             case "info":
                 handleInfo(sender, label, args);
@@ -69,6 +69,22 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private void handleMapSubcommand(CommandSender sender, String label, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " map list");
+            return;
+        }
+
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("list")) {
+            handleList(sender);
+            return;
+        }
+
+        sender.sendMessage(ChatColor.RED + "Sotto-comando sconosciuto."
+                + ChatColor.GRAY + " Usa /" + label + " map list.");
+    }
+
     private void handleCreate(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
             sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0] + " <nome>");
@@ -77,7 +93,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
 
         String name = args[1];
         if (manager.createMap(name)) {
-            sender.sendMessage(ChatColor.GREEN + "Mappa parkour \"" + name + "\" creata.");
+            sender.sendMessage(ChatColor.GREEN + "Mappa \"" + name + "\" creata.");
         } else {
             sender.sendMessage(ChatColor.RED + "Esiste già una mappa con questo nome.");
         }
@@ -91,7 +107,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
 
         String name = args[1];
         if (manager.deleteMap(name)) {
-            sender.sendMessage(ChatColor.YELLOW + "Mappa parkour \"" + name + "\" eliminata.");
+            sender.sendMessage(ChatColor.YELLOW + "Mappa \"" + name + "\" eliminata.");
         } else {
             sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
         }
@@ -109,7 +125,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
         }
 
         String mapName = args[1];
-        ParkourMap map = manager.getMap(mapName);
+        Map map = manager.getMap(mapName);
         if (map == null) {
             sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
             return;
@@ -138,7 +154,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
         }
 
         String mapName = args[1];
-        ParkourMap map = manager.getMap(mapName);
+        Map map = manager.getMap(mapName);
         if (map == null) {
             sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
             return;
@@ -160,7 +176,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = createCheckpointLocation(player);
-        manager.addCheckpoint(mapName, new ParkourCheckpoint(location, radius));
+        manager.addCheckpoint(mapName, new MapCheckpoint(location, radius));
 
         if (radius == 0) {
             sender.sendMessage(ChatColor.GREEN + "Checkpoint a blocco singolo aggiunto alla mappa \""
@@ -174,7 +190,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
     private void handleList(CommandSender sender) {
         List<String> names = manager.getMapNames();
         if (names.isEmpty()) {
-            sender.sendMessage(ChatColor.YELLOW + "Non ci sono mappe parkour configurate.");
+            sender.sendMessage(ChatColor.YELLOW + "Non ci sono mappe configurate.");
             return;
         }
 
@@ -189,7 +205,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
         }
 
         String mapName = args[1];
-        ParkourMap map = manager.getMap(mapName);
+        Map map = manager.getMap(mapName);
         if (map == null) {
             sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
             return;
@@ -202,7 +218,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendUsage(CommandSender sender, String label) {
-        sender.sendMessage(ChatColor.GOLD + "Comandi parkour:");
+        sender.sendMessage(ChatColor.GOLD + "Comandi zCrono:");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " create <nome>"
                 + ChatColor.GRAY + " - crea una nuova mappa");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " delete <nome>"
@@ -213,7 +229,7 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
                 + ChatColor.GRAY + " - imposta il punto finale");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " addcheckpoint <nome> [radius]"
                 + ChatColor.GRAY + " - aggiunge un checkpoint");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " list"
+        sender.sendMessage(ChatColor.YELLOW + "/" + label + " map list"
                 + ChatColor.GRAY + " - mostra le mappe configurate");
         sender.sendMessage(ChatColor.YELLOW + "/" + label + " info <nome>"
                 + ChatColor.GRAY + " - mostra i dettagli della mappa");
@@ -249,13 +265,21 @@ public class ParkourCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("create", "delete", "remove", "setstart",
-                    "setend", "addcheckpoint", "list", "info");
+                    "setend", "addcheckpoint", "map", "info");
             return subCommands.stream()
                     .filter(sub -> sub.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
         }
 
         if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("map")) {
+                List<String> subCommands = Collections.singletonList("list");
+                return subCommands.stream()
+                        .filter(sub -> sub.toLowerCase(Locale.ROOT)
+                                .startsWith(args[1].toLowerCase(Locale.ROOT)))
+                        .collect(Collectors.toList());
+            }
+
             List<String> mapNames = manager.getMapNames();
             return mapNames.stream()
                     .filter(name -> name.toLowerCase(Locale.ROOT)

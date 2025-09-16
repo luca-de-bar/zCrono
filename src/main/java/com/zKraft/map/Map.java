@@ -1,4 +1,4 @@
-package com.zKraft.parkour;
+package com.zKraft.map;
 
 import org.bukkit.Location;
 
@@ -7,16 +7,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Represents the configuration for a single parkour map.
+ * Represents the configuration for a single map.
  */
-public class ParkourMap {
+public class Map {
 
     private final String name;
     private Location start;
     private Location end;
-    private final List<ParkourCheckpoint> checkpoints = new ArrayList<>();
+    private final List<MapCheckpoint> checkpoints = new ArrayList<>();
 
-    public ParkourMap(String name) {
+    public Map(String name) {
         this.name = name;
     }
 
@@ -40,7 +40,7 @@ public class ParkourMap {
         this.end = end;
     }
 
-    public List<ParkourCheckpoint> getCheckpoints() {
+    public List<MapCheckpoint> getCheckpoints() {
         return Collections.unmodifiableList(checkpoints);
     }
 
@@ -48,7 +48,7 @@ public class ParkourMap {
         checkpoints.clear();
     }
 
-    public void addCheckpoint(ParkourCheckpoint checkpoint) {
+    public void addCheckpoint(MapCheckpoint checkpoint) {
         checkpoints.add(checkpoint);
     }
 }

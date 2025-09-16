@@ -1,4 +1,4 @@
-package com.zKraft.parkour;
+package com.zKraft.map;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -13,19 +13,18 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.logging.Logger;
 
 /**
- * Handles the persistence and lookup of parkour maps.
+ * Handles the persistence and lookup of configured maps.
  */
-public class ParkourManager {
+public class MapManager {
 
     private final JavaPlugin plugin;
-    private final Map<String, ParkourMap> maps = new LinkedHashMap<>();
+    private final java.util.Map<String, Map> maps = new LinkedHashMap<>();
     private final Logger logger;
 
-    public ParkourManager(JavaPlugin plugin) {
+    public MapManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.logger = plugin.getLogger();
     }
@@ -47,7 +46,7 @@ public class ParkourManager {
                 continue;
             }
 
-            ParkourMap map = new ParkourMap(mapName);
+            Map map = new Map(mapName);
 
             Location start = LocationSerializer.readLocation(mapSection.getConfigurationSection("start"));
             map.setStart(start);
@@ -55,8 +54,8 @@ public class ParkourManager {
             Location end = LocationSerializer.readLocation(mapSection.getConfigurationSection("end"));
             map.setEnd(end);
 
-            List<Map<?, ?>> checkpointList = mapSection.getMapList("checkpoints");
-            for (Map<?, ?> rawCheckpoint : checkpointList) {
+            List<java.util.Map<?, ?>> checkpointList = mapSection.getMapList("checkpoints");
+            for (java.util.Map<?, ?> rawCheckpoint : checkpointList) {
                 String worldName = asString(rawCheckpoint.get("world"));
                 World world = worldName != null ? Bukkit.getWorld(worldName) : null;
                 double x = asDouble(rawCheckpoint.get("x"));
@@ -69,7 +68,7 @@ public class ParkourManager {
                 double radius = asDouble(rawCheckpoint.get("radius"));
 
                 Location location = new Location(world, x, y, z, yaw, pitch);
-                map.addCheckpoint(new ParkourCheckpoint(location, radius));
+                map.addCheckpoint(new MapCheckpoint(location, radius));
             }
 
             maps.put(normalizeKey(mapName), map);
@@ -81,7 +80,7 @@ public class ParkourManager {
         config.set("maps", null);
         ConfigurationSection mapsSection = config.createSection("maps");
 
-        for (ParkourMap map : maps.values()) {
+        for (Map map : maps.values()) {
             ConfigurationSection mapSection = mapsSection.createSection(map.getName());
 
             if (map.getStart() != null) {
@@ -95,10 +94,10 @@ public class ParkourManager {
             }
 
             if (!map.getCheckpoints().isEmpty()) {
-                List<Map<String, Object>> checkpointList = new ArrayList<>();
+                List<java.util.Map<String, Object>> checkpointList = new ArrayList<>();
 
-                for (ParkourCheckpoint checkpoint : map.getCheckpoints()) {
-                    Map<String, Object> checkpointSection = new LinkedHashMap<>();
+                for (MapCheckpoint checkpoint : map.getCheckpoints()) {
+                    java.util.Map<String, Object> checkpointSection = new LinkedHashMap<>();
                     Location location = checkpoint.getLocation();
                     World world = location.getWorld();
                     checkpointSection.put("world", world != null ? world.getName() : null);
@@ -124,7 +123,7 @@ public class ParkourManager {
             return false;
         }
 
-        maps.put(key, new ParkourMap(name));
+        maps.put(key, new Map(name));
         save();
         return true;
     }
@@ -138,24 +137,24 @@ public class ParkourManager {
         return false;
     }
 
-    public ParkourMap getMap(String name) {
+    public Map getMap(String name) {
         return maps.get(normalizeKey(name));
     }
 
-    public Collection<ParkourMap> getMaps() {
+    public Collection<Map> getMaps() {
         return Collections.unmodifiableCollection(maps.values());
     }
 
     public List<String> getMapNames() {
         List<String> names = new ArrayList<>();
-        for (ParkourMap map : maps.values()) {
+        for (Map map : maps.values()) {
             names.add(map.getName());
         }
         return names;
     }
 
     public void updateStart(String name, Location location) {
-        ParkourMap map = getMap(name);
+        Map map = getMap(name);
         if (map == null) {
             logger.warning("Attempted to set start for unknown map " + name);
             return;
@@ -166,7 +165,7 @@ public class ParkourManager {
     }
 
     public void updateEnd(String name, Location location) {
-        ParkourMap map = getMap(name);
+        Map map = getMap(name);
         if (map == null) {
             logger.warning("Attempted to set end for unknown map " + name);
             return;
@@ -176,8 +175,8 @@ public class ParkourManager {
         save();
     }
 
-    public void addCheckpoint(String name, ParkourCheckpoint checkpoint) {
-        ParkourMap map = getMap(name);
+    public void addCheckpoint(String name, MapCheckpoint checkpoint) {
+        Map map = getMap(name);
         if (map == null) {
             logger.warning("Attempted to add checkpoint for unknown map " + name);
             return;

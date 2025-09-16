@@ -1,4 +1,4 @@
-package com.zKraft.parkour;
+package com.zKraft.map;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
