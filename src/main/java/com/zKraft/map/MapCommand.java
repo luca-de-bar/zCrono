@@ -1,6 +1,5 @@
 package com.zKraft.map;
 
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -27,7 +26,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission(PERMISSION)) {
-            sender.sendMessage(ChatColor.RED + "Non hai il permesso per usare questo comando.");
+            sender.sendMessage("Non hai il permesso per usare questo comando.");
             return true;
         }
 
@@ -58,8 +57,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 handleInfo(sender, label, args);
                 break;
             default:
-                sender.sendMessage(ChatColor.RED + "Comando sconosciuto."
-                        + ChatColor.GRAY + " Usa /" + label + " per la lista completa.");
+                sender.sendMessage("Comando sconosciuto. Usa /" + label + " per la lista completa.");
                 break;
         }
         return true;
@@ -67,7 +65,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
 
     private void handleMapSubcommand(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " map list");
+            sender.sendMessage("Uso corretto: /" + label + " map list");
             return;
         }
 
@@ -77,120 +75,132 @@ public class MapCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        sender.sendMessage(ChatColor.RED + "Sotto-comando sconosciuto."
-                + ChatColor.GRAY + " Usa /" + label + " map list.");
+        sender.sendMessage("Sotto-comando sconosciuto. Usa /" + label + " map list.");
     }
 
     private void handleCreate(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0] + " <nome>");
+            sender.sendMessage("Uso corretto: /" + label + " " + args[0] + " <nome>");
             return;
         }
 
         String name = args[1];
         if (manager.createMap(name)) {
-            sender.sendMessage(ChatColor.GREEN + "Mappa \"" + name + "\" creata.");
+            sender.sendMessage("Mappa \"" + name + "\" creata.");
         } else {
-            sender.sendMessage(ChatColor.RED + "Esiste già una mappa con questo nome.");
+            sender.sendMessage("Esiste già una mappa con questo nome.");
         }
     }
 
     private void handleDelete(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0] + " <nome>");
+            sender.sendMessage("Uso corretto: /" + label + " " + args[0] + " <nome>");
             return;
         }
 
         String name = args[1];
         if (manager.deleteMap(name)) {
-            sender.sendMessage(ChatColor.YELLOW + "Mappa \"" + name + "\" eliminata.");
+            sender.sendMessage("Mappa \"" + name + "\" eliminata.");
         } else {
-            sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
+            sender.sendMessage("Nessuna mappa trovata con questo nome.");
         }
     }
 
     private void handleSetPoint(CommandSender sender, String label, String[] args, boolean start) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(ChatColor.RED + "Solo un giocatore può usare questo comando.");
+            sender.sendMessage("Solo un giocatore può usare questo comando.");
             return;
         }
 
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0] + " <nome>");
+            sender.sendMessage("Uso corretto: /" + label + " " + args[0] + " <nome> [radius]");
             return;
         }
 
         String mapName = args[1];
         Map map = manager.getMap(mapName);
         if (map == null) {
-            sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
+            sender.sendMessage("Nessuna mappa trovata con questo nome.");
             return;
         }
 
         Location location = player.getLocation().clone();
+        double radius = 0.0D;
+        if (args.length >= 3) {
+            try {
+                radius = Integer.parseInt(args[2]);
+                if (radius < 0) {
+                    sender.sendMessage("Il radius deve essere un numero intero positivo.");
+                    return;
+                }
+            } catch (NumberFormatException exception) {
+                sender.sendMessage("Il radius deve essere un numero intero.");
+                return;
+            }
+        }
+
         if (start) {
-            manager.updateStart(mapName, location);
-            sender.sendMessage(ChatColor.GREEN + "Punto di partenza per \"" + mapName + "\" salvato.");
+            manager.updateStart(mapName, location, radius);
+            sender.sendMessage("Punto di partenza per \"" + mapName + "\" salvato.");
         } else {
-            manager.updateEnd(mapName, location);
-            sender.sendMessage(ChatColor.GREEN + "Punto di arrivo per \"" + mapName + "\" salvato.");
+            manager.updateEnd(mapName, location, radius);
+            sender.sendMessage("Punto di arrivo per \"" + mapName + "\" salvato.");
         }
     }
 
     private void handleList(CommandSender sender) {
         List<String> names = manager.getMapNames();
         if (names.isEmpty()) {
-            sender.sendMessage(ChatColor.YELLOW + "Non ci sono mappe configurate.");
+            sender.sendMessage("Non ci sono mappe configurate.");
             return;
         }
 
-        sender.sendMessage(ChatColor.GOLD + "Mappe disponibili: " + ChatColor.WHITE
-                + String.join(ChatColor.GRAY + ", " + ChatColor.WHITE, names));
+        sender.sendMessage("Mappe disponibili: " + String.join(", ", names));
     }
 
     private void handleInfo(CommandSender sender, String label, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Uso corretto: /" + label + " " + args[0] + " <nome>");
+            sender.sendMessage("Uso corretto: /" + label + " " + args[0] + " <nome>");
             return;
         }
 
         String mapName = args[1];
         Map map = manager.getMap(mapName);
         if (map == null) {
-            sender.sendMessage(ChatColor.RED + "Nessuna mappa trovata con questo nome.");
+            sender.sendMessage("Nessuna mappa trovata con questo nome.");
             return;
         }
 
-        sender.sendMessage(ChatColor.GOLD + "Informazioni per \"" + map.getName() + "\":");
-        sender.sendMessage(ChatColor.YELLOW + "Start: " + ChatColor.WHITE + formatLocation(map.getStart()));
-        sender.sendMessage(ChatColor.YELLOW + "End: " + ChatColor.WHITE + formatLocation(map.getEnd()));
+        sender.sendMessage("Informazioni per \"" + map.getName() + "\":");
+        sender.sendMessage("Start: " + formatPoint(map.getStart()));
+        sender.sendMessage("End: " + formatPoint(map.getEnd()));
     }
 
     private void sendUsage(CommandSender sender, String label) {
-        sender.sendMessage(ChatColor.GOLD + "Comandi zCrono:");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " create <nome>"
-                + ChatColor.GRAY + " - crea una nuova mappa");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " delete <nome>"
-                + ChatColor.GRAY + " - rimuove una mappa");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " setstart <nome>"
-                + ChatColor.GRAY + " - imposta il punto di partenza");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " setend <nome>"
-                + ChatColor.GRAY + " - imposta il punto finale");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " map list"
-                + ChatColor.GRAY + " - mostra le mappe configurate");
-        sender.sendMessage(ChatColor.YELLOW + "/" + label + " info <nome>"
-                + ChatColor.GRAY + " - mostra i dettagli della mappa");
+        sender.sendMessage("Comandi zCrono:");
+        sender.sendMessage("/" + label + " create <nome> - crea una nuova mappa");
+        sender.sendMessage("/" + label + " delete <nome> - rimuove una mappa");
+        sender.sendMessage("/" + label + " setstart <nome> [radius] - imposta l'area di partenza");
+        sender.sendMessage("/" + label + " setend <nome> [radius] - imposta l'area di arrivo");
+        sender.sendMessage("/" + label + " map list - mostra le mappe configurate");
+        sender.sendMessage("/" + label + " info <nome> - mostra i dettagli della mappa");
     }
 
-    private String formatLocation(Location location) {
-        if (location == null) {
+    private String formatPoint(MapPoint point) {
+        if (point == null) {
             return "non impostato";
         }
 
+        Location location = point.getLocation();
         String worldName = location.getWorld() != null ? location.getWorld().getName() : "mondo?";
-        return worldName + " "
+        String base = worldName + " "
                 + String.format(Locale.ROOT, "(%.2f, %.2f, %.2f)",
                 location.getX(), location.getY(), location.getZ());
+        double radius = point.getRadius();
+        if (radius > 0.0D) {
+            return base + " radius=" + String.format(Locale.ROOT, "%.2f", radius);
+        }
+        return base;
     }
 
     @Override
@@ -222,6 +232,14 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                             .startsWith(args[1].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
         }
+
+        if (args.length == 3 && (args[0].equalsIgnoreCase("setstart") || args[0].equalsIgnoreCase("setend"))) {
+            List<String> suggestions = Arrays.asList("0", "2", "3", "4", "5");
+            return suggestions.stream()
+                    .filter(value -> value.startsWith(args[2]))
+                    .collect(Collectors.toList());
+        }
+
         return Collections.emptyList();
     }
 }

@@ -1,6 +1,5 @@
 package com.zKraft.map;
 
-import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -46,11 +45,23 @@ public class MapManager {
 
             Map map = new Map(mapName);
 
-            Location start = LocationSerializer.readLocation(mapSection.getConfigurationSection("start"));
-            map.setStart(start);
+            ConfigurationSection startSection = mapSection.getConfigurationSection("start");
+            if (startSection != null) {
+                org.bukkit.Location startLocation = LocationSerializer.readLocation(startSection);
+                if (startLocation != null) {
+                    double startRadius = startSection.getDouble("radius", 0.0D);
+                    map.setStart(new MapPoint(startLocation, startRadius));
+                }
+            }
 
-            Location end = LocationSerializer.readLocation(mapSection.getConfigurationSection("end"));
-            map.setEnd(end);
+            ConfigurationSection endSection = mapSection.getConfigurationSection("end");
+            if (endSection != null) {
+                org.bukkit.Location endLocation = LocationSerializer.readLocation(endSection);
+                if (endLocation != null) {
+                    double endRadius = endSection.getDouble("radius", 0.0D);
+                    map.setEnd(new MapPoint(endLocation, endRadius));
+                }
+            }
 
             maps.put(normalizeKey(mapName), map);
         }
@@ -66,12 +77,14 @@ public class MapManager {
 
             if (map.getStart() != null) {
                 ConfigurationSection startSection = mapSection.createSection("start");
-                LocationSerializer.writeLocation(startSection, map.getStart());
+                LocationSerializer.writeLocation(startSection, map.getStart().getLocation());
+                startSection.set("radius", map.getStart().getRadius());
             }
 
             if (map.getEnd() != null) {
                 ConfigurationSection endSection = mapSection.createSection("end");
-                LocationSerializer.writeLocation(endSection, map.getEnd());
+                LocationSerializer.writeLocation(endSection, map.getEnd().getLocation());
+                endSection.set("radius", map.getEnd().getRadius());
             }
         }
 
@@ -114,25 +127,25 @@ public class MapManager {
         return names;
     }
 
-    public void updateStart(String name, Location location) {
+    public void updateStart(String name, org.bukkit.Location location, double radius) {
         Map map = getMap(name);
         if (map == null) {
             logger.warning("Attempted to set start for unknown map " + name);
             return;
         }
 
-        map.setStart(location);
+        map.setStart(new MapPoint(location, radius));
         save();
     }
 
-    public void updateEnd(String name, Location location) {
+    public void updateEnd(String name, org.bukkit.Location location, double radius) {
         Map map = getMap(name);
         if (map == null) {
             logger.warning("Attempted to set end for unknown map " + name);
             return;
         }
 
-        map.setEnd(location);
+        map.setEnd(new MapPoint(location, radius));
         save();
     }
 

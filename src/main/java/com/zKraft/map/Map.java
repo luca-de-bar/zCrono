@@ -1,15 +1,13 @@
 package com.zKraft.map;
 
-import org.bukkit.Location;
-
 /**
  * Represents the configuration for a single map.
  */
 public class Map {
 
     private final String name;
-    private Location start;
-    private Location end;
+    private MapPoint start;
+    private MapPoint end;
 
     public Map(String name) {
         this.name = name;
@@ -19,19 +17,23 @@ public class Map {
         return name;
     }
 
-    public Location getStart() {
+    public MapPoint getStart() {
         return start;
     }
 
-    public void setStart(Location start) {
+    public void setStart(MapPoint start) {
         this.start = start;
     }
 
-    public Location getEnd() {
+    public MapPoint getEnd() {
         return end;
     }
 
-    public void setEnd(Location end) {
+    public void setEnd(MapPoint end) {
         this.end = end;
+    }
+
+    public boolean isConfigured() {
+        return start != null && end != null;
     }
 }

@@ -1,10 +1,10 @@
 package com.zKraft.map;
 
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -17,13 +17,13 @@ import java.util.UUID;
  */
 public class MapRuntimeManager implements Listener {
 
-    private static final double POINT_RADIUS = 1.5D;
-
     private final MapManager mapManager;
+    private final StatsManager statsManager;
     private final java.util.Map<UUID, PlayerSession> sessions = new HashMap<>();
 
-    public MapRuntimeManager(MapManager mapManager) {
+    public MapRuntimeManager(MapManager mapManager, StatsManager statsManager) {
         this.mapManager = mapManager;
+        this.statsManager = statsManager;
     }
 
     @EventHandler
@@ -36,129 +36,162 @@ public class MapRuntimeManager implements Listener {
         Player player = event.getPlayer();
         PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), key -> new PlayerSession());
 
-        if (session.running) {
+        if (session.isPaused()) {
+            return;
+        }
+
+        if (session.isRunning()) {
             handleRunningPlayer(event, player, session);
             return;
         }
 
-        Map mapAtStart = findMapAtStart(to);
-        if (mapAtStart != null && isEnteringArea(event, mapAtStart.getStart())) {
-            beginRun(player, session, mapAtStart);
-        }
-    }
-
-    private void handleRunningPlayer(PlayerMoveEvent event, Player player, PlayerSession session) {
-        Map map = session.map;
-        if (map == null) {
-            session.running = false;
-            return;
-        }
-
-        Location start = map.getStart();
-        if (start != null && isEnteringArea(event, start)) {
-            player.sendMessage(ChatColor.YELLOW + "Cronometro azzerato, riparti!");
-            beginRun(player, session, map);
-            return;
-        }
-
-        Location end = map.getEnd();
-        if (end != null && isEnteringArea(event, end)) {
-            finishRun(player, session);
+        Map mapAtStart = findMapForStart(event.getFrom(), to);
+        if (mapAtStart != null && mapAtStart.isConfigured()) {
+            session.start(mapAtStart);
         }
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        sessions.remove(event.getPlayer().getUniqueId());
+        PlayerSession session = sessions.get(event.getPlayer().getUniqueId());
+        if (session != null) {
+            session.pause();
+        }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        PlayerSession session = sessions.get(event.getPlayer().getUniqueId());
+        if (session != null && session.isPaused()) {
+            session.resume();
+        }
     }
 
     public void shutdown() {
         sessions.clear();
     }
 
-    private void beginRun(Player player, PlayerSession session, Map map) {
-        if (map.getStart() == null || map.getEnd() == null) {
-            player.sendMessage(ChatColor.RED + "La mappa \"" + map.getName() + "\" non è configurata correttamente.");
-            session.running = false;
-            session.map = null;
+    private void handleRunningPlayer(PlayerMoveEvent event, Player player, PlayerSession session) {
+        Map map = session.getMap();
+        if (map == null || !map.isConfigured()) {
+            session.reset();
             return;
         }
 
-        session.map = map;
-        session.running = true;
-        session.runStartTime = System.nanoTime();
-        player.sendMessage(ChatColor.GREEN + "Cronometro avviato per \"" + map.getName() + "\".");
-    }
-
-    private void finishRun(Player player, PlayerSession session) {
-        session.running = false;
-        long elapsedNanos = System.nanoTime() - session.runStartTime;
-        Duration duration = Duration.ofNanos(Math.max(elapsedNanos, 0L));
-        String formatted = formatDuration(duration);
-        player.sendMessage(ChatColor.GREEN + "Hai completato la mappa \"" + session.map.getName()
-                + "\" in " + ChatColor.GOLD + formatted + ChatColor.GREEN + ".");
-        session.map = null;
-        session.runStartTime = 0L;
-    }
-
-    private Map findMapAtStart(Location location) {
-        if (location == null) {
-            return null;
+        MapPoint startPoint = map.getStart();
+        if (startPoint != null && isEnteringArea(event.getFrom(), event.getTo(), startPoint)) {
+            session.restart();
+            return;
         }
 
+        MapPoint endPoint = map.getEnd();
+        if (endPoint != null && isEnteringArea(event.getFrom(), event.getTo(), endPoint)) {
+            finishRun(player, session, map);
+        }
+    }
+
+    private void finishRun(Player player, PlayerSession session, Map map) {
+        long nanos = session.elapsedNanos();
+        session.reset();
+
+        if (nanos <= 0L) {
+            return;
+        }
+
+        statsManager.recordRun(map, player, Duration.ofNanos(nanos));
+    }
+
+    private Map findMapForStart(Location from, Location to) {
         for (Map map : mapManager.getMaps()) {
-            Location start = map.getStart();
-            if (start != null && isInsideArea(location, start, POINT_RADIUS)) {
+            if (!map.isConfigured()) {
+                continue;
+            }
+
+            MapPoint startPoint = map.getStart();
+            if (startPoint != null && isEnteringArea(from, to, startPoint)) {
                 return map;
             }
         }
         return null;
     }
 
-    private boolean isInsideArea(Location location, Location center, double radius) {
-        if (location == null || center == null) {
+    private boolean isEnteringArea(Location from, Location to, MapPoint point) {
+        if (point == null || to == null) {
             return false;
         }
 
-        if (location.getWorld() == null || center.getWorld() == null) {
-            return false;
-        }
-
-        if (!location.getWorld().equals(center.getWorld())) {
-            return false;
-        }
-
-        double dx = location.getX() - center.getX();
-        double dy = location.getY() - center.getY();
-        double dz = location.getZ() - center.getZ();
-        return dx * dx + dy * dy + dz * dz <= radius * radius;
-    }
-
-    private boolean isEnteringArea(PlayerMoveEvent event, Location center) {
-        if (center == null) {
-            return false;
-        }
-
-        Location from = event.getFrom();
-        Location to = event.getTo();
-        if (to == null) {
-            return false;
-        }
-
-        return !isInsideArea(from, center, POINT_RADIUS) && isInsideArea(to, center, POINT_RADIUS);
-    }
-
-    private String formatDuration(Duration duration) {
-        long totalMillis = duration.toMillis();
-        long minutes = totalMillis / 60000;
-        long seconds = (totalMillis % 60000) / 1000;
-        long millis = totalMillis % 1000;
-        return String.format(java.util.Locale.ROOT, "%02d:%02d.%03d", minutes, seconds, millis);
+        boolean wasInside = point.contains(from);
+        boolean isInside = point.contains(to);
+        return !wasInside && isInside;
     }
 
     private static class PlayerSession {
         private Map map;
         private boolean running;
-        private long runStartTime;
+        private boolean paused;
+        private long runStartNanos;
+        private long accumulatedNanos;
+
+        void start(Map map) {
+            this.map = map;
+            this.running = true;
+            this.paused = false;
+            this.accumulatedNanos = 0L;
+            this.runStartNanos = System.nanoTime();
+        }
+
+        void restart() {
+            if (map == null) {
+                return;
+            }
+            this.running = true;
+            this.paused = false;
+            this.accumulatedNanos = 0L;
+            this.runStartNanos = System.nanoTime();
+        }
+
+        void pause() {
+            if (running) {
+                accumulatedNanos += Math.max(System.nanoTime() - runStartNanos, 0L);
+                running = false;
+            }
+            paused = map != null;
+        }
+
+        void resume() {
+            if (map != null && paused) {
+                running = true;
+                runStartNanos = System.nanoTime();
+                paused = false;
+            }
+        }
+
+        long elapsedNanos() {
+            long total = accumulatedNanos;
+            if (running) {
+                total += Math.max(System.nanoTime() - runStartNanos, 0L);
+            }
+            return total;
+        }
+
+        void reset() {
+            running = false;
+            paused = false;
+            accumulatedNanos = 0L;
+            runStartNanos = 0L;
+            map = null;
+        }
+
+        Map getMap() {
+            return map;
+        }
+
+        boolean isRunning() {
+            return running;
+        }
+
+        boolean isPaused() {
+            return paused;
+        }
     }
 }
