@@ -2,17 +2,22 @@ package com.zKraft;
 
 import com.zKraft.map.MapCommand;
 import com.zKraft.map.MapManager;
+import com.zKraft.map.MapRuntimeManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class zCrono extends JavaPlugin {
 
     private MapManager mapManager;
+    private MapRuntimeManager runtimeManager;
 
     @Override
     public void onEnable() {
         mapManager = new MapManager(this);
         mapManager.load();
+
+        runtimeManager = new MapRuntimeManager(this, mapManager);
+        getServer().getPluginManager().registerEvents(runtimeManager, this);
 
         PluginCommand command = getCommand("zcrono");
         if (command != null) {
@@ -28,6 +33,10 @@ public final class zCrono extends JavaPlugin {
     public void onDisable() {
         if (mapManager != null) {
             mapManager.save();
+        }
+
+        if (runtimeManager != null) {
+            runtimeManager.shutdown();
         }
     }
 
