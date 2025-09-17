@@ -8,6 +8,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -20,11 +21,13 @@ public class MapCommand implements CommandExecutor, TabCompleter {
 
     private static final String PERMISSION = "zcrono.admin";
 
+    private final JavaPlugin plugin;
     private final MapManager manager;
     private final StatsManager statsManager;
     private final MapRuntimeManager runtimeManager;
 
-    public MapCommand(MapManager manager, StatsManager statsManager, MapRuntimeManager runtimeManager) {
+    public MapCommand(JavaPlugin plugin, MapManager manager, StatsManager statsManager, MapRuntimeManager runtimeManager) {
+        this.plugin = plugin;
         this.manager = manager;
         this.statsManager = statsManager;
         this.runtimeManager = runtimeManager;
@@ -73,6 +76,9 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 break;
             case "resetmap":
                 handleResetMap(sender, label, args);
+                break;
+            case "reload":
+                handleReload(sender);
                 break;
             default:
                 sender.sendMessage("Comando sconosciuto. Usa /" + label + " per la lista completa.");
@@ -266,7 +272,15 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("/" + label + " info <nome> - mostra i dettagli della mappa");
         sender.sendMessage("/" + label + " resetplayer <mappa> <giocatore> - azzera il tempo di un giocatore");
         sender.sendMessage("/" + label + " resetmap <mappa> - rimuove tutti i tempi di una mappa");
+        sender.sendMessage("/" + label + " reload - ricarica la configurazione");
         sender.sendMessage("/" + label + " leave - esce dalla corsa attiva");
+    }
+
+    private void handleReload(CommandSender sender) {
+        runtimeManager.shutdown();
+        manager.load();
+        runtimeManager.reload(plugin.getConfig());
+        sender.sendMessage("Configurazione di zCrono ricaricata.");
     }
 
     private String formatPoint(MapPoint point) {
@@ -294,7 +308,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("create", "delete", "remove", "setstart",
-                    "setend", "map", "info", "resetplayer", "resetmap", "leave");
+                    "setend", "map", "info", "resetplayer", "resetmap", "reload", "leave");
             return subCommands.stream()
                     .filter(sub -> sub.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());

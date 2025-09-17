@@ -28,7 +28,7 @@ public final class zCrono extends JavaPlugin {
 
         PluginCommand command = getCommand("zcrono");
         if (command != null) {
-            MapCommand mapCommand = new MapCommand(mapManager, statsManager, runtimeManager);
+            MapCommand mapCommand = new MapCommand(this, mapManager, statsManager, runtimeManager);
             command.setExecutor(mapCommand);
             command.setTabCompleter(mapCommand);
         } else {

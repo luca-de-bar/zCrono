@@ -1,7 +1,7 @@
 package com.zKraft.map;
 
-import net.md_5.bungee.api.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -32,23 +32,34 @@ public class MapRuntimeManager implements Listener {
     private final StatsManager statsManager;
     private final java.util.Map<UUID, PlayerSession> sessions = new HashMap<>();
 
-    private final int countdownSeconds;
-    private final String startMessage;
-    private final String goMessage;
-    private final String endMessage;
-    private final String endChatMessage;
+    private int countdownSeconds;
+    private String startMessage;
+    private String goMessage;
+    private String endMessage;
+    private String endChatMessage;
 
     public MapRuntimeManager(JavaPlugin plugin, MapManager mapManager, StatsManager statsManager) {
         this.plugin = plugin;
         this.mapManager = mapManager;
         this.statsManager = statsManager;
 
-        FileConfiguration config = plugin.getConfig();
-        this.countdownSeconds = Math.max(0, config.getInt("countdownSeconds", 3));
-        this.startMessage = config.getString("startMessage", "⏱ La corsa inizia tra {seconds}...");
-        this.goMessage = config.getString("goMessage", "🏁 GO!");
-        this.endMessage = config.getString("endMessage", "&aHai completato il percorso in {time}.");
-        this.endChatMessage = config.getString("endChatMessage", "&aHai completato il percorso in {time}.");
+        loadSettings(plugin.getConfig());
+    }
+
+    public void reload(FileConfiguration configuration) {
+        loadSettings(configuration);
+    }
+
+    private void loadSettings(FileConfiguration configuration) {
+        if (configuration == null) {
+            return;
+        }
+
+        countdownSeconds = Math.max(0, configuration.getInt("countdownSeconds", 3));
+        startMessage = configuration.getString("startMessage", "⏱ La corsa inizia tra {seconds}...");
+        goMessage = configuration.getString("goMessage", "🏁 GO!");
+        endMessage = configuration.getString("endMessage", "&aHai completato il percorso in {time}.");
+        endChatMessage = configuration.getString("endChatMessage", "&aHai completato il percorso in {time}.");
     }
 
     @EventHandler
@@ -271,9 +282,7 @@ public class MapRuntimeManager implements Listener {
                 "map", map.getName(),
                 "player", player.getName()
         ));
-        if (!message.isEmpty()) {
-            player.sendTitle(message, "", 0, 20, 0);
-        }
+        sendWrappedTitle(player, message, 0, 20, 0);
     }
 
     private void sendGoTitle(Player player, Map map) {
@@ -281,9 +290,7 @@ public class MapRuntimeManager implements Listener {
                 "map", map.getName(),
                 "player", player.getName()
         ));
-        if (!message.isEmpty()) {
-            player.sendTitle(message, "", 0, 20, 10);
-        }
+        sendWrappedTitle(player, message, 0, 20, 10);
     }
 
     private void sendFinishMessages(Player player, Map map, long nanos) {
@@ -293,9 +300,7 @@ public class MapRuntimeManager implements Listener {
                 "map", map.getName(),
                 "player", player.getName()
         ));
-        if (!title.isEmpty()) {
-            player.sendTitle(title, "", 10, 40, 10);
-        }
+        sendWrappedTitle(player, title, 10, 40, 10);
 
         String chat = formatMessage(endChatMessage, java.util.Map.of(
                 "time", formattedTime,
@@ -328,11 +333,11 @@ public class MapRuntimeManager implements Listener {
         StringBuffer buffer = new StringBuffer();
         while (matcher.find()) {
             String color = matcher.group(1);
-            ChatColor chatColor;
+            net.md_5.bungee.api.ChatColor chatColor;
             try {
-                chatColor = ChatColor.of("#" + color);
+                chatColor = net.md_5.bungee.api.ChatColor.of("#" + color);
             } catch (IllegalArgumentException exception) {
-                chatColor = ChatColor.WHITE;
+                chatColor = net.md_5.bungee.api.ChatColor.WHITE;
             }
             matcher.appendReplacement(buffer, chatColor.toString());
         }
@@ -343,6 +348,94 @@ public class MapRuntimeManager implements Listener {
     private void cleanupIfIdle(UUID playerId, PlayerSession session) {
         if (session.isIdle()) {
             sessions.remove(playerId);
+        }
+    }
+
+    private void sendWrappedTitle(Player player, String message, int fadeIn, int stay, int fadeOut) {
+        if (message == null || message.isEmpty()) {
+            return;
+        }
+
+        TitleParts parts = splitForTitle(message);
+        if (parts.isEmpty()) {
+            return;
+        }
+
+        player.sendTitle(parts.title(), parts.subtitle(), fadeIn, stay, fadeOut);
+    }
+
+    private TitleParts splitForTitle(String message) {
+        if (message == null || message.isEmpty()) {
+            return TitleParts.empty();
+        }
+
+        String normalized = message.replace("\r\n", "\n").replace('\r', '\n');
+        int newline = normalized.indexOf('\n');
+        if (newline >= 0) {
+            String title = normalized.substring(0, newline);
+            String subtitle = newline + 1 < normalized.length() ? normalized.substring(newline + 1) : "";
+            return TitleParts.of(title, subtitle);
+        }
+
+        final int limit = 32;
+        int plainChars = 0;
+        int lastSpace = -1;
+        for (int index = 0; index < normalized.length(); index++) {
+            char current = normalized.charAt(index);
+            if (current == ChatColor.COLOR_CHAR && index + 1 < normalized.length()) {
+                index++;
+                continue;
+            }
+
+            plainChars++;
+            if (Character.isWhitespace(current)) {
+                lastSpace = index;
+            }
+
+            if (plainChars > limit) {
+                int breakPoint = lastSpace >= 0 ? lastSpace : index;
+                return splitAt(normalized, breakPoint);
+            }
+        }
+
+        return TitleParts.of(normalized, "");
+    }
+
+    private TitleParts splitAt(String message, int index) {
+        if (message.isEmpty()) {
+            return TitleParts.empty();
+        }
+
+        int safeIndex = Math.max(0, Math.min(index, message.length()));
+        int secondIndex = safeIndex;
+        if (secondIndex < message.length() && Character.isWhitespace(message.charAt(secondIndex))) {
+            secondIndex++;
+        }
+
+        String title = message.substring(0, safeIndex);
+        String subtitle = secondIndex < message.length() ? message.substring(secondIndex) : "";
+        if (!subtitle.isEmpty()) {
+            String lastColors = ChatColor.getLastColors(title);
+            if (!lastColors.isEmpty()) {
+                subtitle = lastColors + subtitle;
+            }
+        }
+        return TitleParts.of(title, subtitle);
+    }
+
+    private record TitleParts(String title, String subtitle) {
+        static TitleParts empty() {
+            return new TitleParts("", "");
+        }
+
+        static TitleParts of(String title, String subtitle) {
+            String safeTitle = title == null ? "" : title;
+            String safeSubtitle = subtitle == null ? "" : subtitle;
+            return new TitleParts(safeTitle, safeSubtitle);
+        }
+
+        boolean isEmpty() {
+            return ChatColor.stripColor(title).isEmpty() && ChatColor.stripColor(subtitle).isEmpty();
         }
     }
 
