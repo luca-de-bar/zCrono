@@ -1,0 +1,8 @@
+countdownSeconds: 0
+startMessage: "⏱ La corsa inizia tra {seconds}..."
+goMessage: "🏁 GO!"
+endMessage: "&aHai completato il percorso in {time}."
+endChatMessage: "&aHai completato il percorso in {time}."
+leaveSuccessMessage: ""
+leaveNoActiveMessage: ""
+maps: {}

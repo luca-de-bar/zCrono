@@ -2,3 +2,13 @@ name: zCrono
 version: '1.0.0'
 main: com.zKraft.zCrono
 api-version: '1.21'
+softdepend:
+  - PlaceholderAPI
+commands:
+  zcrono:
+    description: Gestisce le mappe configurate per zCrono
+    usage: /zcrono
+permissions:
+  zcrono.admin:
+    description: Consente di configurare le mappe di zCrono
+    default: op
