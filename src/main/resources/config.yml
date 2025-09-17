@@ -1,0 +1,14 @@
+# Impostazioni di persistenza delle statistiche.
+persistence:
+  # Imposta a true per salvare le statistiche su MySQL invece che su data.yml.
+  use-mysql: false
+  mysql:
+    host: localhost
+    port: 3306
+    database: zcrono
+    username: zcrono
+    password: changeme
+    use-ssl: true
+
+# Le mappe configurate verranno salvate automaticamente in questa sezione.
+maps: {}
