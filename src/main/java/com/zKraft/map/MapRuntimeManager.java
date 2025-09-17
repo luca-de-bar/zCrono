@@ -73,8 +73,8 @@ public class MapRuntimeManager implements Listener {
         goMessage = configuration.getString("goMessage", "🏁 GO!");
         endMessage = configuration.getString("endMessage", "&aHai completato il percorso in {time}.");
         endChatMessage = configuration.getString("endChatMessage", "&aHai completato il percorso in {time}.");
-        leaveSuccessMessage = configuration.getString("leaveSuccessMessage", "");
-        leaveNoActiveMessage = configuration.getString("leaveNoActiveMessage", "");
+        leaveSuccessMessage = configuration.getString("leaveSuccessMessage", "Hai interrotto correttamente la corsa.");
+        leaveNoActiveMessage = configuration.getString("leaveNoActiveMessage", "Non ci sono corse attive da interrompere.");
     }
 
     private void tickPlayers() {
