@@ -1,3 +1,12 @@
+# Impostazioni generali della corsa.
+countdownSeconds: 3
+startMessage: "&#E43A96⏱ &#545EB6La corsa parte tra {seconds}..."
+goMessage: "🏁 GO!"
+endMessage: "&aHai completato il percorso in {time}."
+endChatMessage: "&aHai completato il percorso in {time}."
+leaveSuccessMessage: "Hai interrotto correttamente la corsa."
+leaveNoActiveMessage: "Non ci sono corse attive da interrompere."
+
 # Impostazioni di persistenza delle statistiche.
 persistence:
   # Imposta a true per salvare le statistiche su MySQL invece che su data.yml.
