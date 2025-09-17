@@ -17,6 +17,10 @@ public final class zCrono extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
+        ConfigDefaults.ensure(this);
+        reloadConfig();
+
         mapManager = new MapManager(this);
         mapManager.load();
 
