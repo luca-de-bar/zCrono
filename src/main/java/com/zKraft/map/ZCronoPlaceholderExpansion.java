@@ -16,11 +16,14 @@ public class ZCronoPlaceholderExpansion extends PlaceholderExpansion {
     private final com.zKraft.zCrono plugin;
     private final MapManager mapManager;
     private final StatsManager statsManager;
+    private final MapRuntimeManager runtimeManager;
 
-    public ZCronoPlaceholderExpansion(com.zKraft.zCrono plugin, MapManager mapManager, StatsManager statsManager) {
+    public ZCronoPlaceholderExpansion(com.zKraft.zCrono plugin, MapManager mapManager, StatsManager statsManager,
+                                      MapRuntimeManager runtimeManager) {
         this.plugin = plugin;
         this.mapManager = mapManager;
         this.statsManager = statsManager;
+        this.runtimeManager = runtimeManager;
     }
 
     @Override
@@ -62,12 +65,24 @@ public class ZCronoPlaceholderExpansion extends PlaceholderExpansion {
             return handleBestTime(player, identifier.substring("besttime_".length()));
         }
 
+        if (identifier.startsWith("top_player_")) {
+            return handleTopComponent(identifier.substring("top_player_".length()), TopComponent.PLAYER);
+        }
+
+        if (identifier.startsWith("top_time_")) {
+            return handleTopComponent(identifier.substring("top_time_".length()), TopComponent.TIME);
+        }
+
         if (identifier.startsWith("top_")) {
             return handleTop(identifier.substring("top_".length()));
         }
 
         if (identifier.startsWith("rank_")) {
             return handleRank(player, identifier.substring("rank_".length()));
+        }
+
+        if (identifier.startsWith("live_")) {
+            return handleLive(player, identifier.substring("live_".length()));
         }
 
         return "";
@@ -106,9 +121,56 @@ public class ZCronoPlaceholderExpansion extends PlaceholderExpansion {
     }
 
     private String handleTop(String input) {
+        Optional<TopRequest> request = parseTopRequest(input);
+        if (request.isEmpty()) {
+            return "";
+        }
+
+        Optional<StatsManager.LeaderboardEntry> entry = resolveTopEntry(request.get());
+        if (entry.isEmpty()) {
+            return "-";
+        }
+
+        StatsManager.LeaderboardEntry value = entry.get();
+        return value.name() + " " + TimeFormatter.format(value.timeNanos());
+    }
+
+    private String handleTopComponent(String input, TopComponent component) {
+        Optional<TopRequest> request = parseTopRequest(input);
+        if (request.isEmpty()) {
+            return "";
+        }
+
+        Optional<StatsManager.LeaderboardEntry> entry = resolveTopEntry(request.get());
+        if (entry.isEmpty()) {
+            return "-";
+        }
+
+        StatsManager.LeaderboardEntry value = entry.get();
+        if (component == TopComponent.PLAYER) {
+            return value.name();
+        }
+        return TimeFormatter.format(value.timeNanos());
+    }
+
+    private String handleLive(Player player, String mapName) {
+        if (player == null || mapName.isEmpty()) {
+            return "-";
+        }
+
+        Map map = mapManager.getMap(mapName);
+        if (map == null) {
+            return "-";
+        }
+
+        OptionalLong nanos = runtimeManager.getLiveTime(player.getUniqueId(), map.getName());
+        return nanos.isPresent() ? TimeFormatter.format(nanos.getAsLong()) : "-";
+    }
+
+    private Optional<TopRequest> parseTopRequest(String input) {
         int separator = input.lastIndexOf('_');
         if (separator <= 0 || separator >= input.length() - 1) {
-            return "";
+            return Optional.empty();
         }
 
         String mapName = input.substring(0, separator);
@@ -117,24 +179,30 @@ public class ZCronoPlaceholderExpansion extends PlaceholderExpansion {
         try {
             position = Integer.parseInt(positionValue);
         } catch (NumberFormatException exception) {
-            return "";
+            return Optional.empty();
         }
 
         if (position <= 0) {
-            return "";
+            return Optional.empty();
         }
 
-        Map map = mapManager.getMap(mapName);
+        return Optional.of(new TopRequest(mapName, position));
+    }
+
+    private Optional<StatsManager.LeaderboardEntry> resolveTopEntry(TopRequest request) {
+        Map map = mapManager.getMap(request.mapName());
         if (map == null) {
-            return "-";
+            return Optional.empty();
         }
 
-        Optional<StatsManager.LeaderboardEntry> entry = statsManager.getTopEntry(map.getName(), position);
-        if (entry.isEmpty()) {
-            return "-";
-        }
+        return statsManager.getTopEntry(map.getName(), request.position());
+    }
 
-        StatsManager.LeaderboardEntry value = entry.get();
-        return value.name() + " " + TimeFormatter.format(value.timeNanos());
+    private enum TopComponent {
+        PLAYER,
+        TIME
+    }
+
+    private record TopRequest(String mapName, int position) {
     }
 }

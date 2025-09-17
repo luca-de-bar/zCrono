@@ -23,12 +23,12 @@ public final class zCrono extends JavaPlugin {
         statsManager = new StatsManager(this);
         statsManager.load();
 
-        runtimeManager = new MapRuntimeManager(mapManager, statsManager);
+        runtimeManager = new MapRuntimeManager(this, mapManager, statsManager);
         getServer().getPluginManager().registerEvents(runtimeManager, this);
 
         PluginCommand command = getCommand("zcrono");
         if (command != null) {
-            MapCommand mapCommand = new MapCommand(mapManager);
+            MapCommand mapCommand = new MapCommand(mapManager, statsManager, runtimeManager);
             command.setExecutor(mapCommand);
             command.setTabCompleter(mapCommand);
         } else {
@@ -36,7 +36,7 @@ public final class zCrono extends JavaPlugin {
         }
 
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
-            placeholderExpansion = new ZCronoPlaceholderExpansion(this, mapManager, statsManager);
+            placeholderExpansion = new ZCronoPlaceholderExpansion(this, mapManager, statsManager, runtimeManager);
             placeholderExpansion.register();
         } else {
             getLogger().info("PlaceholderAPI non trovato, i placeholder di zCrono sono disabilitati.");

@@ -158,6 +158,44 @@ public class StatsManager {
         }
     }
 
+    public boolean resetPlayer(String mapName, UUID playerId) {
+        if (mapName == null || playerId == null) {
+            return false;
+        }
+
+        Map<UUID, Long> times = mapTimes.get(normalizeKey(mapName));
+        if (times == null) {
+            return false;
+        }
+
+        if (times.remove(playerId) == null) {
+            return false;
+        }
+
+        if (times.isEmpty()) {
+            mapTimes.remove(normalizeKey(mapName));
+        }
+
+        dirty = true;
+        save();
+        return true;
+    }
+
+    public boolean resetMap(String mapName) {
+        if (mapName == null) {
+            return false;
+        }
+
+        Map<UUID, Long> removed = mapTimes.remove(normalizeKey(mapName));
+        if (removed == null) {
+            return false;
+        }
+
+        dirty = true;
+        save();
+        return true;
+    }
+
     public OptionalLong getBestTime(String mapName, UUID playerId) {
         if (mapName == null || playerId == null) {
             return OptionalLong.empty();

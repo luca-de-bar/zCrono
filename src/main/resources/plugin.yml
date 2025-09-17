@@ -8,7 +8,6 @@ commands:
   zcrono:
     description: Gestisce le mappe configurate per zCrono
     usage: /zcrono
-    permission: zcrono.admin
 permissions:
   zcrono.admin:
     description: Consente di configurare le mappe di zCrono
