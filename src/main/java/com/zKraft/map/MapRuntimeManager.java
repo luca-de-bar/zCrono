@@ -1,16 +1,16 @@
 package com.zKraft.map;
 
-import org.bukkit.Location;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -31,12 +31,17 @@ public class MapRuntimeManager implements Listener {
     private final MapManager mapManager;
     private final StatsManager statsManager;
     private final java.util.Map<UUID, PlayerSession> sessions = new HashMap<>();
+    private final java.util.Map<UUID, PlayerState> playerStates = new HashMap<>();
 
     private int countdownSeconds;
     private String startMessage;
     private String goMessage;
     private String endMessage;
     private String endChatMessage;
+    private String leaveSuccessMessage;
+    private String leaveNoActiveMessage;
+
+    private BukkitTask monitorTask;
 
     public MapRuntimeManager(JavaPlugin plugin, MapManager mapManager, StatsManager statsManager) {
         this.plugin = plugin;
@@ -44,6 +49,14 @@ public class MapRuntimeManager implements Listener {
         this.statsManager = statsManager;
 
         loadSettings(plugin.getConfig());
+    }
+
+    public void startup() {
+        if (monitorTask != null && !monitorTask.isCancelled()) {
+            return;
+        }
+
+        monitorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickPlayers, 1L, 1L);
     }
 
     public void reload(FileConfiguration configuration) {
@@ -55,45 +68,62 @@ public class MapRuntimeManager implements Listener {
             return;
         }
 
-        countdownSeconds = Math.max(0, configuration.getInt("countdownSeconds", 3));
+        countdownSeconds = Math.max(0, configuration.getInt("countdownSeconds", 0));
         startMessage = configuration.getString("startMessage", "⏱ La corsa inizia tra {seconds}...");
         goMessage = configuration.getString("goMessage", "🏁 GO!");
         endMessage = configuration.getString("endMessage", "&aHai completato il percorso in {time}.");
         endChatMessage = configuration.getString("endChatMessage", "&aHai completato il percorso in {time}.");
+        leaveSuccessMessage = configuration.getString("leaveSuccessMessage", "Hai interrotto correttamente la corsa.");
+        leaveNoActiveMessage = configuration.getString("leaveNoActiveMessage", "Non ci sono corse attive da interrompere.");
     }
 
-    @EventHandler
-    public void onPlayerMove(PlayerMoveEvent event) {
-        Location to = event.getTo();
+    private void tickPlayers() {
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            UUID playerId = player.getUniqueId();
+            PlayerState state = playerStates.computeIfAbsent(playerId, id -> new PlayerState(player.getLocation()));
+            Location previous = state.getLastLocation();
+            Location current = player.getLocation();
+
+            processPlayer(player, previous, current);
+
+            state.update(current);
+        }
+    }
+
+    private void processPlayer(Player player, Location from, Location to) {
         if (to == null) {
             return;
         }
 
-        Player player = event.getPlayer();
-        PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), key -> new PlayerSession());
+        UUID playerId = player.getUniqueId();
+        PlayerSession session = sessions.get(playerId);
 
-        if (session.isPaused()) {
+        if (session != null && session.isPaused()) {
             return;
         }
 
-        if (session.isCountingDown()) {
+        if (session != null && session.isCountingDown()) {
             Map map = session.getMap();
             MapPoint startPoint = map != null ? map.getStart() : null;
             if (map == null || startPoint == null || !startPoint.contains(to)) {
                 session.cancelCountdown(true);
                 player.resetTitle();
-                cleanupIfIdle(player.getUniqueId(), session);
+                cleanupIfIdle(playerId, session);
             }
             return;
         }
 
-        if (session.isRunning()) {
-            handleRunningPlayer(event, player, session);
+        if (session != null && session.isRunning()) {
+            handleRunningPlayer(player, session, from, to);
             return;
         }
 
-        Map mapAtStart = findMapForStart(event.getFrom(), to);
+        Map mapAtStart = findMapForStart(from, to);
         if (mapAtStart != null && mapAtStart.isConfigured()) {
+            if (session == null) {
+                session = new PlayerSession();
+                sessions.put(playerId, session);
+            }
             startCountdown(player, mapAtStart, session);
         }
     }
@@ -104,6 +134,7 @@ public class MapRuntimeManager implements Listener {
         if (session != null) {
             session.pause();
         }
+        playerStates.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
@@ -112,28 +143,52 @@ public class MapRuntimeManager implements Listener {
         if (session != null && session.isPaused()) {
             session.resume();
         }
+        playerStates.put(event.getPlayer().getUniqueId(), new PlayerState(event.getPlayer().getLocation()));
     }
 
     public void shutdown() {
-        for (PlayerSession session : sessions.values()) {
+        if (monitorTask != null) {
+            monitorTask.cancel();
+            monitorTask = null;
+        }
+
+        for (java.util.Map.Entry<UUID, PlayerSession> entry : sessions.entrySet()) {
+            PlayerSession session = entry.getValue();
             session.reset();
+            Player online = plugin.getServer().getPlayer(entry.getKey());
+            if (online != null) {
+                online.resetTitle();
+            }
         }
         sessions.clear();
+        playerStates.clear();
     }
 
-    public boolean leaveTimer(Player player) {
+    public Map leaveTimer(Player player) {
         PlayerSession session = sessions.get(player.getUniqueId());
-        if (session == null) {
-            return false;
+        if (session == null || !session.hasActivity()) {
+            return null;
         }
 
-        boolean hadActivity = session.hasActivity();
-        if (hadActivity) {
-            session.reset();
-            player.resetTitle();
-            cleanupIfIdle(player.getUniqueId(), session);
-        }
-        return hadActivity;
+        Map map = session.getMap();
+        session.reset();
+        player.resetTitle();
+        cleanupIfIdle(player.getUniqueId(), session);
+        return map;
+    }
+
+    public String renderLeaveSuccessMessage(Player player, Map map) {
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        values.put("player", player.getName());
+        values.put("map", map != null ? map.getName() : "");
+        return formatMessage(leaveSuccessMessage, values);
+    }
+
+    public String renderLeaveNoActiveMessage(Player player) {
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        values.put("player", player.getName());
+        values.put("map", "");
+        return formatMessage(leaveNoActiveMessage, values);
     }
 
     public void resetPlayerSession(UUID playerId) {
@@ -199,7 +254,7 @@ public class MapRuntimeManager implements Listener {
         return OptionalLong.of(session.elapsedNanos());
     }
 
-    private void handleRunningPlayer(PlayerMoveEvent event, Player player, PlayerSession session) {
+    private void handleRunningPlayer(Player player, PlayerSession session, Location from, Location to) {
         Map map = session.getMap();
         if (map == null || !map.isConfigured()) {
             session.reset();
@@ -208,13 +263,13 @@ public class MapRuntimeManager implements Listener {
         }
 
         MapPoint startPoint = map.getStart();
-        if (startPoint != null && isEnteringArea(event.getFrom(), event.getTo(), startPoint)) {
+        if (startPoint != null && isEnteringArea(from, to, startPoint)) {
             startCountdown(player, map, session);
             return;
         }
 
         MapPoint endPoint = map.getEnd();
-        if (endPoint != null && isEnteringArea(event.getFrom(), event.getTo(), endPoint)) {
+        if (endPoint != null && isEnteringArea(from, to, endPoint)) {
             finishRun(player, session, map);
         }
     }
@@ -489,6 +544,22 @@ public class MapRuntimeManager implements Listener {
             stopped = true;
             super.cancel();
             session.onCountdownStopped(clearState);
+        }
+    }
+
+    private static class PlayerState {
+        private Location lastLocation;
+
+        PlayerState(Location location) {
+            update(location);
+        }
+
+        Location getLastLocation() {
+            return lastLocation;
+        }
+
+        void update(Location location) {
+            lastLocation = location == null ? null : location.clone();
         }
     }
 

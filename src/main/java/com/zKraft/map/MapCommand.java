@@ -12,6 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -20,11 +21,13 @@ import java.util.stream.Collectors;
 public class MapCommand implements CommandExecutor, TabCompleter {
 
     private static final String PERMISSION = "zcrono.admin";
+    private static final long CONFIRMATION_TIMEOUT_MS = 30_000L;
 
     private final JavaPlugin plugin;
     private final MapManager manager;
     private final StatsManager statsManager;
     private final MapRuntimeManager runtimeManager;
+    private final java.util.Map<String, Confirmation> confirmations = new HashMap<>();
 
     public MapCommand(JavaPlugin plugin, MapManager manager, StatsManager statsManager, MapRuntimeManager runtimeManager) {
         this.plugin = plugin;
@@ -93,10 +96,17 @@ public class MapCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        if (runtimeManager.leaveTimer(player)) {
-            sender.sendMessage("Cronometro interrotto.");
+        Map activeMap = runtimeManager.leaveTimer(player);
+        if (activeMap != null) {
+            String message = runtimeManager.renderLeaveSuccessMessage(player, activeMap);
+            if (!message.isEmpty()) {
+                sender.sendMessage(message);
+            }
         } else {
-            sender.sendMessage("Non hai nessuna corsa attiva.");
+            String message = runtimeManager.renderLeaveNoActiveMessage(player);
+            if (!message.isEmpty()) {
+                sender.sendMessage(message);
+            }
         }
     }
 
@@ -136,11 +146,30 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         }
 
         String name = args[1];
-        if (manager.deleteMap(name)) {
-            sender.sendMessage("Mappa \"" + name + "\" eliminata.");
-        } else {
+        Map map = manager.getMap(name);
+        if (map == null) {
             sender.sendMessage("Nessuna mappa trovata con questo nome.");
+            return;
         }
+
+        if (args.length >= 3 && args[2].equalsIgnoreCase("confirm")) {
+            if (!consumeConfirmation(sender, ConfirmationType.DELETE_MAP, map.getName())) {
+                sender.sendMessage("Nessuna richiesta di conferma valida. Ripeti il comando senza \"confirm\".");
+                return;
+            }
+
+            runtimeManager.resetSessionsForMap(map.getName());
+            statsManager.resetMap(map.getName());
+            if (manager.deleteMap(map.getName())) {
+                sender.sendMessage("Mappa \"" + map.getName() + "\" eliminata.");
+            } else {
+                sender.sendMessage("Impossibile eliminare la mappa (forse è già stata rimossa).");
+            }
+            return;
+        }
+
+        requestConfirmation(sender, ConfirmationType.DELETE_MAP, map.getName());
+        sender.sendMessage("Conferma la cancellazione con /" + label + " " + args[0] + " " + map.getName() + " confirm entro 30 secondi.");
     }
 
     private void handleSetPoint(CommandSender sender, String label, String[] args, boolean start) {
@@ -252,26 +281,37 @@ public class MapCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        boolean removed = statsManager.resetMap(map.getName());
-        runtimeManager.resetSessionsForMap(map.getName());
+        if (args.length >= 3 && args[2].equalsIgnoreCase("confirm")) {
+            if (!consumeConfirmation(sender, ConfirmationType.RESET_MAP, map.getName())) {
+                sender.sendMessage("Nessuna richiesta di conferma valida. Ripeti il comando senza \"confirm\".");
+                return;
+            }
 
-        if (removed) {
-            sender.sendMessage("Tutti i tempi per \"" + map.getName() + "\" sono stati rimossi.");
-        } else {
-            sender.sendMessage("Non ci sono tempi registrati per questa mappa.");
+            runtimeManager.resetSessionsForMap(map.getName());
+            boolean removed = statsManager.resetMap(map.getName());
+
+            if (removed) {
+                sender.sendMessage("Tutti i tempi per \"" + map.getName() + "\" sono stati rimossi.");
+            } else {
+                sender.sendMessage("Non ci sono tempi registrati per questa mappa.");
+            }
+            return;
         }
+
+        requestConfirmation(sender, ConfirmationType.RESET_MAP, map.getName());
+        sender.sendMessage("Conferma l'azzeramento con /" + label + " " + args[0] + " " + map.getName() + " confirm entro 30 secondi.");
     }
 
     private void sendUsage(CommandSender sender, String label) {
         sender.sendMessage("Comandi zCrono:");
         sender.sendMessage("/" + label + " create <nome> - crea una nuova mappa");
-        sender.sendMessage("/" + label + " delete <nome> - rimuove una mappa");
+        sender.sendMessage("/" + label + " delete <nome> [confirm] - rimuove una mappa");
         sender.sendMessage("/" + label + " setstart <nome> [radius] - imposta l'area di partenza");
         sender.sendMessage("/" + label + " setend <nome> [radius] - imposta l'area di arrivo");
         sender.sendMessage("/" + label + " map list - mostra le mappe configurate");
         sender.sendMessage("/" + label + " info <nome> - mostra i dettagli della mappa");
         sender.sendMessage("/" + label + " resetplayer <mappa> <giocatore> - azzera il tempo di un giocatore");
-        sender.sendMessage("/" + label + " resetmap <mappa> - rimuove tutti i tempi di una mappa");
+        sender.sendMessage("/" + label + " resetmap <mappa> [confirm] - rimuove tutti i tempi di una mappa");
         sender.sendMessage("/" + label + " reload - ricarica la configurazione");
         sender.sendMessage("/" + label + " leave - esce dalla corsa attiva");
     }
@@ -280,7 +320,37 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         runtimeManager.shutdown();
         manager.load();
         runtimeManager.reload(plugin.getConfig());
+        runtimeManager.startup();
         sender.sendMessage("Configurazione di zCrono ricaricata.");
+    }
+
+    private void requestConfirmation(CommandSender sender, ConfirmationType type, String mapName) {
+        confirmations.put(confirmationKey(sender), new Confirmation(type, mapName, System.currentTimeMillis()));
+    }
+
+    private boolean consumeConfirmation(CommandSender sender, ConfirmationType type, String mapName) {
+        String key = confirmationKey(sender);
+        Confirmation confirmation = confirmations.get(key);
+        if (confirmation == null) {
+            return false;
+        }
+
+        if (confirmation.isExpired() || !confirmation.matches(type, mapName)) {
+            if (confirmation.isExpired()) {
+                confirmations.remove(key);
+            }
+            return false;
+        }
+
+        confirmations.remove(key);
+        return true;
+    }
+
+    private String confirmationKey(CommandSender sender) {
+        if (sender instanceof Player player) {
+            return "player:" + player.getUniqueId();
+        }
+        return "sender:" + sender.getName();
     }
 
     private String formatPoint(MapPoint point) {
@@ -330,6 +400,14 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                     .collect(Collectors.toList());
         }
 
+        if (args.length == 3 && (args[0].equalsIgnoreCase("delete") || args[0].equalsIgnoreCase("remove")
+                || args[0].equalsIgnoreCase("resetmap"))) {
+            List<String> suggestions = Collections.singletonList("confirm");
+            return suggestions.stream()
+                    .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(args[2].toLowerCase(Locale.ROOT)))
+                    .collect(Collectors.toList());
+        }
+
         if (args.length == 3 && (args[0].equalsIgnoreCase("setstart") || args[0].equalsIgnoreCase("setend"))) {
             List<String> suggestions = Arrays.asList("0", "2", "3", "4", "5");
             return suggestions.stream()
@@ -345,5 +423,20 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         }
 
         return Collections.emptyList();
+    }
+
+    private record Confirmation(ConfirmationType type, String mapName, long createdAt) {
+        boolean isExpired() {
+            return System.currentTimeMillis() - createdAt > CONFIRMATION_TIMEOUT_MS;
+        }
+
+        boolean matches(ConfirmationType type, String mapName) {
+            return this.type == type && this.mapName.equalsIgnoreCase(mapName);
+        }
+    }
+
+    private enum ConfirmationType {
+        DELETE_MAP,
+        RESET_MAP
     }
 }
