@@ -10,12 +10,7 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +45,12 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         String subCommand = args[0].toLowerCase(Locale.ROOT);
         if (subCommand.equals("leave")) {
             handleLeave(sender);
+            return true;
+        }
+
+
+        if (subCommand.equals("lastrun")) {
+            handleLastRun(sender, label, args);
             return true;
         }
 
@@ -112,6 +113,39 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(message);
             }
         }
+    }
+
+    private void handleLastRun(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Solo un giocatore può ripristinare una corsa.");
+            return;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage("Uso corretto: /" + label + " lastrun <mappa>");
+            return;
+        }
+
+        Map map = manager.getMap(args[1]);
+        if (map == null) {
+            sender.sendMessage("Nessuna mappa trovata con questo nome.");
+            return;
+        }
+
+        OptionalLong ongoing = statsManager.getOngoingRun(map.getName(), player.getUniqueId());
+        if (ongoing.isEmpty() || ongoing.getAsLong() < 0L) {
+            sender.sendMessage("Non ci sono corse da ripristinare per questa mappa.");
+            return;
+        }
+
+        long nanos = ongoing.getAsLong();
+        if (!runtimeManager.resumeLastRun(player, map, nanos)) {
+            sender.sendMessage("Impossibile ripristinare la corsa. Assicurati che la mappa sia configurata.");
+            return;
+        }
+
+        String formatted = TimeFormatter.format(nanos);
+        sender.sendMessage("Ultima corsa su \"" + map.getName() + "\" ripristinata da " + formatted + ".");
     }
 
     private void handleMapSubcommand(CommandSender sender, String label, String[] args) {
@@ -318,9 +352,11 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("/" + label + " resetmap <mappa> [confirm] - rimuove tutti i tempi di una mappa");
         sender.sendMessage("/" + label + " reload - ricarica la configurazione");
         sender.sendMessage("/" + label + " leave - esce dalla corsa attiva");
+        sender.sendMessage("/" + label + " lastrun <mappa> - ripristina l'ultima corsa salvata");
     }
 
     private void handleReload(CommandSender sender) {
+        runtimeManager.saveActiveRuns();
         runtimeManager.shutdown();
         manager.load();
         runtimeManager.reload(plugin.getConfig());
@@ -377,12 +413,28 @@ public class MapCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (!sender.hasPermission(PERMISSION)) {
+            if (args.length == 1) {
+                List<String> subCommands = Arrays.asList("leave", "lastrun");
+                return subCommands.stream()
+                        .filter(sub -> sub.toLowerCase(Locale.ROOT)
+                                .startsWith(args[0].toLowerCase(Locale.ROOT)))
+                        .collect(Collectors.toList());
+            }
+
+            if (args.length == 2 && args[0].equalsIgnoreCase("lastrun")) {
+                List<String> mapNames = manager.getMapNames();
+                return mapNames.stream()
+                        .filter(name -> name.toLowerCase(Locale.ROOT)
+                                .startsWith(args[1].toLowerCase(Locale.ROOT)))
+                        .collect(Collectors.toList());
+            }
+
             return Collections.emptyList();
         }
 
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("create", "delete", "remove", "setstart",
-                    "setend", "map", "info", "resetplayer", "resetmap", "reload", "leave");
+                    "setend", "map", "info", "resetplayer", "resetmap", "reload", "leave", "lastrun");
             return subCommands.stream()
                     .filter(sub -> sub.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());

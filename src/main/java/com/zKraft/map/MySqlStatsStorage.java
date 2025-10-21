@@ -32,11 +32,15 @@ public class MySqlStatsStorage implements StatsStorage {
             """;
 
     private static final String UPSERT_TIME_SQL = """
-            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE best_nanos = LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
+            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            VALUES (?, ?, ?, 1)
+            ON DUPLICATE KEY UPDATE
+                best_nanos = CASE
+                    WHEN zcrono_map_times.is_run_finished = 1 THEN LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
+                    ELSE VALUES(best_nanos)
+                END,
+                is_run_finished = 1
             """;
-
     private static final String DELETE_PLAYER_TIME_SQL = """
             DELETE FROM zcrono_map_times
             WHERE map_key = ? AND player_uuid = ?
@@ -48,7 +52,12 @@ public class MySqlStatsStorage implements StatsStorage {
 
     private static final String SELECT_BEST_TIME_SQL = """
             SELECT best_nanos FROM zcrono_map_times
-            WHERE map_key = ? AND player_uuid = ?
+            WHERE map_key = ? AND player_uuid = ? AND is_run_finished = 1
+            """;
+
+    private static final String SELECT_ONGOING_TIME_SQL = """
+            SELECT best_nanos FROM zcrono_map_times
+            WHERE map_key = ? AND player_uuid = ? AND is_run_finished = 0
             """;
 
     private static final String SELECT_RANK_SQL = """
@@ -57,7 +66,7 @@ public class MySqlStatsStorage implements StatsStorage {
                        ROW_NUMBER() OVER (ORDER BY mt.best_nanos ASC, COALESCE(p.name, mt.player_uuid) ASC, mt.player_uuid ASC) AS position
                 FROM zcrono_map_times mt
                 LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-                WHERE mt.map_key = ?
+                 WHERE mt.map_key = ? AND mt.is_run_finished = 1
             )
             SELECT position FROM ordered WHERE player_uuid = ?
             """;
@@ -70,7 +79,7 @@ public class MySqlStatsStorage implements StatsStorage {
                        ROW_NUMBER() OVER (ORDER BY mt.best_nanos ASC, COALESCE(p.name, mt.player_uuid) ASC, mt.player_uuid ASC) AS position
                 FROM zcrono_map_times mt
                 LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-                WHERE mt.map_key = ?
+                WHERE mt.map_key = ? AND mt.is_run_finished = 1
             )
             SELECT player_uuid, player_name, best_nanos
             FROM ordered
@@ -81,20 +90,14 @@ public class MySqlStatsStorage implements StatsStorage {
             SELECT mt.player_uuid, COALESCE(p.name, mt.player_uuid) AS player_name, mt.best_nanos
             FROM zcrono_map_times mt
             LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-            WHERE mt.map_key = ?
+            WHERE mt.map_key = ? AND mt.is_run_finished = 1
             ORDER BY mt.best_nanos ASC, player_name ASC, mt.player_uuid ASC
             """;
 
-    private static final String UPSERT_CACHED_PLAYER_SQL = """
-            INSERT INTO zcrono_players (uuid, name)
-            VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE name = VALUES(name)
-            """;
-
-    private static final String UPSERT_CACHED_TIME_SQL = """
+    private static final String UPSERT_ONGOING_TIME_SQL = """
             INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos, is_run_finished)
-            VALUES (?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE best_nanos = LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
+            VALUES (?, ?, ?, 0)
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos), is_run_finished = 0
             """;
 
     private final Logger logger;
@@ -289,8 +292,8 @@ public class MySqlStatsStorage implements StatsStorage {
     }
 
     @Override
-    public void saveCachedTimes(String mapName, UUID playerId, String playerName, long nanos) {
-        if (mapName == null || mapName.isEmpty() || playerId == null || nanos <= 0L) {
+    public void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos) {
+        if (mapName == null || mapName.isEmpty() || playerId == null || nanos < 0L) {
             return;
         }
 
@@ -300,8 +303,8 @@ public class MySqlStatsStorage implements StatsStorage {
         try (Connection connection = getConnection()) {
             boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
-            try (PreparedStatement playerStatement = connection.prepareStatement(UPSERT_CACHED_PLAYER_SQL);
-                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_CACHED_TIME_SQL)) {
+            try (PreparedStatement playerStatement = connection.prepareStatement(UPSERT_PLAYER_SQL);
+                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_ONGOING_TIME_SQL)) {
 
                 playerStatement.setString(1, playerId.toString());
                 playerStatement.setString(2, resolvedName);
@@ -322,6 +325,28 @@ public class MySqlStatsStorage implements StatsStorage {
         } catch (SQLException exception) {
             logger.log(Level.SEVERE, "Impossibile registrare il tempo nel database", exception);
         }
+    }
+
+    @Override
+    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
+        if (mapName == null || playerId == null) {
+            return OptionalLong.empty();
+        }
+
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(SELECT_ONGOING_TIME_SQL)) {
+            statement.setString(1, normalizeKey(mapName));
+            statement.setString(2, playerId.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return OptionalLong.of(resultSet.getLong(1));
+                }
+            }
+        } catch (SQLException exception) {
+            logger.log(Level.SEVERE, "Impossibile recuperare la corsa dal database", exception);
+        }
+
+        return OptionalLong.empty();
     }
 
     private Connection getConnection() throws SQLException {

@@ -2,6 +2,7 @@ package com.zKraft.map;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -59,8 +60,44 @@ public class MapRuntimeManager implements Listener {
         monitorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickPlayers, 1L, 1L);
     }
 
+    public void saveActiveRuns() {
+        if (sessions.isEmpty()) {
+            return;
+        }
+
+        for (java.util.Map.Entry<UUID, PlayerSession> entry : sessions.entrySet()) {
+            PlayerSession session = entry.getValue();
+            if (session == null) {
+                continue;
+            }
+
+            if (!(session.isRunning() || session.isPaused())) {
+                continue;
+            }
+
+            Map map = session.getMap();
+            if (map == null || !map.isConfigured()) {
+                continue;
+            }
+
+            long elapsed = session.elapsedNanos();
+            UUID playerId = entry.getKey();
+            statsManager.saveOngoingRun(map.getName(), playerId, resolvePlayerName(playerId), elapsed);
+        }
+    }
+
     public void reload(FileConfiguration configuration) {
         loadSettings(configuration);
+    }
+
+    private String resolvePlayerName(UUID playerId) {
+        Player online = plugin.getServer().getPlayer(playerId);
+        if (online != null) {
+            return online.getName();
+        }
+        OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(playerId);
+        String name = offlinePlayer.getName();
+        return name != null ? name : playerId.toString();
     }
 
     private void loadSettings(FileConfiguration configuration) {
@@ -189,6 +226,18 @@ public class MapRuntimeManager implements Listener {
         values.put("player", player.getName());
         values.put("map", "");
         return formatMessage(leaveNoActiveMessage, values);
+    }
+
+    public boolean resumeLastRun(Player player, Map map, long elapsedNanos) {
+        if (player == null || map == null || !map.isConfigured()) {
+            return false;
+        }
+
+        PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), id -> new PlayerSession());
+        session.reset();
+        session.resumeFrom(map, Math.max(0L, elapsedNanos));
+        playerStates.put(player.getUniqueId(), new PlayerState(player.getLocation()));
+        return true;
     }
 
     public void resetPlayerSession(UUID playerId) {
@@ -619,6 +668,18 @@ public class MapRuntimeManager implements Listener {
                 runStartNanos = System.nanoTime();
                 paused = false;
             }
+        }
+
+        void resumeFrom(Map map, long elapsedNanos) {
+            if (countdown != null) {
+                countdown.stop(true);
+                countdown = null;
+            }
+            this.map = map;
+            running = true;
+            paused = false;
+            accumulatedNanos = Math.max(0L, elapsedNanos);
+            runStartNanos = System.nanoTime();
         }
 
         long elapsedNanos() {

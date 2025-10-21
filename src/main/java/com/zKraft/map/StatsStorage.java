@@ -26,5 +26,7 @@ public interface StatsStorage {
 
     List<StatsManager.LeaderboardEntry> getEntries(String mapName);
 
-    void saveCachedTimes(String mapName, UUID playerId, String playerName, long nanos);
+    void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos);
+
+    OptionalLong getOngoingRun(String mapName, UUID playerId);
 }

@@ -92,6 +92,20 @@ public class StatsManager {
         return storage.getEntries(mapName);
     }
 
+    public void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos) {
+        if (storage == null || mapName == null || playerId == null || nanos < 0L) {
+            return;
+        }
+        storage.saveOngoingRun(mapName, playerId, playerName, nanos);
+    }
+
+    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
+        if (storage == null || mapName == null || playerId == null) {
+            return OptionalLong.empty();
+        }
+        return storage.getOngoingRun(mapName, playerId);
+    }
+
     private StatsStorage createStorage() {
         ConfigurationSection persistenceSection = plugin.getConfig().getConfigurationSection("persistence");
         boolean useMysql = persistenceSection != null && persistenceSection.getBoolean("use-mysql", false);

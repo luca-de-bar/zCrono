@@ -29,6 +29,7 @@ public class YamlStatsStorage implements StatsStorage {
     private final JavaPlugin plugin;
     private final File dataFile;
     private final Map<String, Map<UUID, Long>> mapTimes = new HashMap<>();
+    private final Map<String, Map<UUID, Long>> ongoingRuns = new HashMap<>();
     private final Map<UUID, String> playerNames = new HashMap<>();
     private boolean dirty;
 
@@ -41,6 +42,7 @@ public class YamlStatsStorage implements StatsStorage {
     public void load() {
         ensureDataFolder();
         mapTimes.clear();
+        ongoingRuns.clear();
         playerNames.clear();
         dirty = false;
 
@@ -65,35 +67,58 @@ public class YamlStatsStorage implements StatsStorage {
         }
 
         ConfigurationSection mapsSection = configuration.getConfigurationSection("maps");
-        if (mapsSection == null) {
-            return;
-        }
+        if (mapsSection != null) {
+            for (String mapKey : mapsSection.getKeys(false)) {
+                ConfigurationSection mapSection = mapsSection.getConfigurationSection(mapKey);
+                if (mapSection == null) {
+                    continue;
+                }
 
-        for (String mapKey : mapsSection.getKeys(false)) {
-            ConfigurationSection mapSection = mapsSection.getConfigurationSection(mapKey);
-            if (mapSection == null) {
-                continue;
-            }
+                ConfigurationSection timesSection = mapSection.getConfigurationSection("times");
+                if (timesSection == null) {
+                    continue;
+                }
 
-            ConfigurationSection timesSection = mapSection.getConfigurationSection("times");
-            if (timesSection == null) {
-                continue;
-            }
-
-            Map<UUID, Long> times = new HashMap<>();
-            for (String uuidKey : timesSection.getKeys(false)) {
-                try {
-                    UUID uuid = UUID.fromString(uuidKey);
-                    long time = timesSection.getLong(uuidKey);
-                    if (time > 0L) {
-                        times.put(uuid, time);
+                Map<UUID, Long> times = new HashMap<>();
+                for (String uuidKey : timesSection.getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(uuidKey);
+                        long time = timesSection.getLong(uuidKey);
+                        if (time > 0L) {
+                            times.put(uuid, time);
+                        }
+                    } catch (IllegalArgumentException ignored) {
                     }
-                } catch (IllegalArgumentException ignored) {
+                }
+
+                if (!times.isEmpty()) {
+                    mapTimes.put(normalizeKey(mapKey), times);
                 }
             }
+        }
 
-            if (!times.isEmpty()) {
-                mapTimes.put(normalizeKey(mapKey), times);
+        ConfigurationSection ongoingSection = configuration.getConfigurationSection("ongoing");
+        if (ongoingSection != null) {
+            for (String mapKey : ongoingSection.getKeys(false)) {
+                ConfigurationSection mapSection = ongoingSection.getConfigurationSection(mapKey);
+                if (mapSection == null) {
+                    continue;
+                }
+
+                Map<UUID, Long> runs = new HashMap<>();
+                for (String uuidKey : mapSection.getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(uuidKey);
+                        long time = mapSection.getLong(uuidKey);
+                        if (time > 0L) {
+                            runs.put(uuid, time);
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+                if (!runs.isEmpty()) {
+                    ongoingRuns.put(normalizeKey(mapKey), runs);
+                }
             }
         }
     }
@@ -122,6 +147,14 @@ public class YamlStatsStorage implements StatsStorage {
             }
         }
 
+        ConfigurationSection ongoingSection = configuration.createSection("ongoing");
+        for (Map.Entry<String, Map<UUID, Long>> entry : ongoingRuns.entrySet()) {
+            ConfigurationSection runSection = ongoingSection.createSection(entry.getKey());
+            for (Map.Entry<UUID, Long> timeEntry : entry.getValue().entrySet()) {
+                runSection.set(timeEntry.getKey().toString(), timeEntry.getValue());
+            }
+        }
+
         try {
             configuration.save(dataFile);
             dirty = false;
@@ -141,6 +174,14 @@ public class YamlStatsStorage implements StatsStorage {
 
         boolean changed = updatePlayerName(playerId, playerName);
 
+        Map<UUID, Long> ongoing = ongoingRuns.get(mapKey);
+        if (ongoing != null && ongoing.remove(playerId) != null) {
+            if (ongoing.isEmpty()) {
+                ongoingRuns.remove(mapKey);
+            }
+            changed = true;
+        }
+
         Long currentBest = times.get(playerId);
         if (currentBest == null || nanos < currentBest) {
             times.put(playerId, nanos);
@@ -159,17 +200,27 @@ public class YamlStatsStorage implements StatsStorage {
             return false;
         }
 
-        Map<UUID, Long> times = mapTimes.get(normalizeKey(mapName));
-        if (times == null) {
-            return false;
+        String mapKey = normalizeKey(mapName);
+        boolean changed = false;
+
+        Map<UUID, Long> times = mapTimes.get(mapKey);
+        if (times != null && times.remove(playerId) != null) {
+            changed = true;
+            if (times.isEmpty()) {
+                mapTimes.remove(mapKey);
+            }
         }
 
-        if (times.remove(playerId) == null) {
-            return false;
+        Map<UUID, Long> ongoing = ongoingRuns.get(mapKey);
+        if (ongoing != null && ongoing.remove(playerId) != null) {
+            changed = true;
+            if (ongoing.isEmpty()) {
+                ongoingRuns.remove(mapKey);
+            }
         }
 
-        if (times.isEmpty()) {
-            mapTimes.remove(normalizeKey(mapName));
+        if (!changed) {
+            return false;
         }
 
         dirty = true;
@@ -183,8 +234,11 @@ public class YamlStatsStorage implements StatsStorage {
             return false;
         }
 
-        Map<UUID, Long> removed = mapTimes.remove(normalizeKey(mapName));
-        if (removed == null) {
+        String mapKey = normalizeKey(mapName);
+
+        Map<UUID, Long> removed = mapTimes.remove(mapKey);
+        Map<UUID, Long> removedOngoing = ongoingRuns.remove(mapKey);
+        if (removed == null && removedOngoing == null) {
             return false;
         }
 
@@ -257,6 +311,35 @@ public class YamlStatsStorage implements StatsStorage {
             leaderboard.add(new StatsManager.LeaderboardEntry(entry.getKey(), resolveName(entry.getKey()), entry.getValue()));
         }
         return Collections.unmodifiableList(leaderboard);
+    }
+
+    @Override
+    public void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos) {
+        if (mapName == null || mapName.isEmpty() || playerId == null || nanos < 0L) {
+            return;
+        }
+
+        String mapKey = normalizeKey(mapName);
+        Map<UUID, Long> runs = ongoingRuns.computeIfAbsent(mapKey, unused -> new HashMap<>());
+        runs.put(playerId, nanos);
+        updatePlayerName(playerId, playerName);
+        dirty = true;
+        save();
+    }
+
+    @Override
+    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
+        if (mapName == null || playerId == null) {
+            return OptionalLong.empty();
+        }
+
+        Map<UUID, Long> runs = ongoingRuns.get(normalizeKey(mapName));
+        if (runs == null) {
+            return OptionalLong.empty();
+        }
+
+        Long value = runs.get(playerId);
+        return value != null ? OptionalLong.of(value) : OptionalLong.empty();
     }
 
     private Comparator<Map.Entry<UUID, Long>> leaderboardComparator() {

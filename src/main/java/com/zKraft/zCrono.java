@@ -55,6 +55,7 @@ public final class zCrono extends JavaPlugin {
         }
 
         if (runtimeManager != null) {
+            runtimeManager.saveActiveRuns();
             runtimeManager.shutdown();
         }
 
