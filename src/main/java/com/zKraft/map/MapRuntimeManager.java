@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Handles the runtime behaviour for maps, timing runs between start and end areas.
+ * Gestisce il timer di una mappa
  */
 public class MapRuntimeManager implements Listener {
 

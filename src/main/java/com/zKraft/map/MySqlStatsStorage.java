@@ -21,7 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * MySQL-backed implementation of {@link StatsStorage}.
+ * Query SQL usate nel plugin
  */
 public class MySqlStatsStorage implements StatsStorage {
 
@@ -83,6 +83,18 @@ public class MySqlStatsStorage implements StatsStorage {
             LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
             WHERE mt.map_key = ?
             ORDER BY mt.best_nanos ASC, player_name ASC, mt.player_uuid ASC
+            """;
+
+    private static final String UPSERT_CACHED_PLAYER_SQL = """
+            INSERT INTO zcrono_players (uuid, name)
+            VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE name = VALUES(name)
+            """;
+
+    private static final String UPSERT_CACHED_TIME_SQL = """
+            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE best_nanos = LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
             """;
 
     private final Logger logger;
@@ -274,6 +286,42 @@ public class MySqlStatsStorage implements StatsStorage {
         }
 
         return Collections.unmodifiableList(entries);
+    }
+
+    @Override
+    public void saveCachedTimes(String mapName, UUID playerId, String playerName, long nanos) {
+        if (mapName == null || mapName.isEmpty() || playerId == null || nanos <= 0L) {
+            return;
+        }
+
+        String normalizedMap = normalizeKey(mapName);
+        String resolvedName = resolvePlayerName(playerId, playerName);
+
+        try (Connection connection = getConnection()) {
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement playerStatement = connection.prepareStatement(UPSERT_CACHED_PLAYER_SQL);
+                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_CACHED_TIME_SQL)) {
+
+                playerStatement.setString(1, playerId.toString());
+                playerStatement.setString(2, resolvedName);
+                playerStatement.executeUpdate();
+
+                timeStatement.setString(1, normalizedMap);
+                timeStatement.setString(2, playerId.toString());
+                timeStatement.setLong(3, nanos);
+                timeStatement.executeUpdate();
+
+                connection.commit();
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
+        } catch (SQLException exception) {
+            logger.log(Level.SEVERE, "Impossibile registrare il tempo nel database", exception);
+        }
     }
 
     private Connection getConnection() throws SQLException {

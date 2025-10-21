@@ -18,10 +18,14 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Comandi per le Mappe
+ */
+
 public class MapCommand implements CommandExecutor, TabCompleter {
 
     private static final String PERMISSION = "zcrono.admin";
-    private static final long CONFIRMATION_TIMEOUT_MS = 30_000L;
+    private static final long CONFIRMATION_TIMEOUT_MS = 30_000L; // 30sec comando di conferma per la delete di una mappa / reset
 
     private final JavaPlugin plugin;
     private final MapManager manager;

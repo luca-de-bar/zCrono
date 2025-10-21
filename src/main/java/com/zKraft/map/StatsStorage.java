@@ -6,9 +6,6 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 
-/**
- * Defines persistence operations for player statistics.
- */
 public interface StatsStorage {
 
     void load();
@@ -28,4 +25,6 @@ public interface StatsStorage {
     Optional<StatsManager.LeaderboardEntry> getTopEntry(String mapName, int position);
 
     List<StatsManager.LeaderboardEntry> getEntries(String mapName);
+
+    void saveCachedTimes(String mapName, UUID playerId, String playerName, long nanos);
 }

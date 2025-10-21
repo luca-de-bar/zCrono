@@ -1,7 +1,7 @@
 package com.zKraft.map;
 
 /**
- * Represents the configuration for a single map.
+ * Mappa
  */
 public class Map {
 

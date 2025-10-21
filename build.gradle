@@ -1,9 +1,10 @@
 plugins {
     id 'java'
+    id("com.gradleup.shadow") version "9.2.2"
 }
 
 group = 'com.zKraft'
-version = '1.0.0'
+version = '1.0.1'
 
 repositories {
     mavenCentral()
@@ -47,4 +48,8 @@ processResources {
     filesMatching('plugin.yml') {
         expand props
     }
+}
+
+tasks.named('shadowJar') {
+    archiveFileName = "${project.name}-${project.version}.jar"
 }

@@ -1,5 +1,5 @@
 name: zCrono
-version: '1.0.0'
+version: '${version}'
 main: com.zKraft.zCrono
 api-version: '1.21'
 softdepend:

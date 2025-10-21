@@ -9,7 +9,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 /**
- * PlaceholderAPI expansion exposing zCrono leaderboard data.
+ * PlaceHolder API
  */
 public class ZCronoPlaceholderExpansion extends PlaceholderExpansion {
 

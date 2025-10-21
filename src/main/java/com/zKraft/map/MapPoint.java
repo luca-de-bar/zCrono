@@ -4,7 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 
 /**
- * Represents a location-based trigger area for a map.
+ * Rappresenta un punto di start e/o end di una mappa e le sue configurazioni.
  */
 public class MapPoint {
 

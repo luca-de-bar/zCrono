@@ -13,7 +13,7 @@ import java.util.Locale;
 import java.util.logging.Logger;
 
 /**
- * Handles the persistence and lookup of configured maps.
+ * Salvataggio e dettaglio mappe
  */
 public class MapManager {
 

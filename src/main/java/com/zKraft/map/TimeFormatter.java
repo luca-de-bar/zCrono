@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.util.Locale;
 
 /**
- * Utility helpers to format run durations for display.
+ * Utility per il Time Format
  */
 public final class TimeFormatter {
 

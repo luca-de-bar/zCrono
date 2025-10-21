@@ -3,10 +3,6 @@ package com.zKraft;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/**
- * Populates default values in the plugin configuration to ensure newly
- * introduced options exist even on installations with a pre-existing config.yml.
- */
 public final class ConfigDefaults {
 
     private ConfigDefaults() {

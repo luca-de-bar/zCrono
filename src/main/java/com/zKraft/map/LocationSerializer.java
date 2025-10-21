@@ -6,7 +6,7 @@ import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 
 /**
- * Utility class used to serialize and deserialize Bukkit {@link Location} instances.
+ * Classe di utility per deserializzare e serializzare la Location di Bukkit
  */
 public final class LocationSerializer {
 

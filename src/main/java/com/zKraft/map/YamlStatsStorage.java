@@ -22,7 +22,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * YAML-backed implementation of {@link StatsStorage}.
+ * Gestore salvataggio su Yaml
  */
 public class YamlStatsStorage implements StatsStorage {
 

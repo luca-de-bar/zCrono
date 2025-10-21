@@ -7,7 +7,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Ensures the required database tables and indexes exist.
+ * Preparazione Database
  */
 public class DatabasePreparer {
 
@@ -25,6 +25,7 @@ public class DatabasePreparer {
                 map_key VARCHAR(128) NOT NULL,
                 player_uuid CHAR(36) NOT NULL,
                 best_nanos BIGINT NOT NULL,
+                is_run_finished TINYINT(1) NOT NULL,
                 PRIMARY KEY (map_key, player_uuid),
                 KEY idx_zcrono_map_times_map (map_key, best_nanos, player_uuid),
                 KEY idx_zcrono_map_times_player (player_uuid)

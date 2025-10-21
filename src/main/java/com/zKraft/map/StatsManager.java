@@ -14,7 +14,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * Stores personal bests and leaderboards for configured maps.
+ * Salva i personal bests
  */
 public class StatsManager {
 

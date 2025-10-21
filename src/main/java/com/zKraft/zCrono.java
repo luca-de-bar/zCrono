@@ -66,8 +66,4 @@ public final class zCrono extends JavaPlugin {
             placeholderExpansion.unregister();
         }
     }
-
-    public MapManager getMapManager() {
-        return mapManager;
-    }
 }

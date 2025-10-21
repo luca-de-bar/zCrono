@@ -3,7 +3,7 @@ package com.zKraft.map;
 import java.util.Locale;
 
 /**
- * Holds configuration details for the MySQL connection.
+ * Impostazioni database
  */
 public class DatabaseSettings {
 
