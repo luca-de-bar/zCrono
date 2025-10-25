@@ -14,10 +14,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.OptionalLong;
-import java.util.UUID;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,6 +30,7 @@ public class MapRuntimeManager implements Listener {
     private final StatsManager statsManager;
     private final java.util.Map<UUID, PlayerSession> sessions = new HashMap<>();
     private final java.util.Map<UUID, PlayerState> playerStates = new HashMap<>();
+    private final java.util.Map<UUID, PendingRun> pendingResumptions = new HashMap<>();
 
     private int countdownSeconds;
     private String startMessage;
@@ -58,6 +56,25 @@ public class MapRuntimeManager implements Listener {
         }
 
         monitorTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickPlayers, 1L, 1L);
+    }
+
+    public void restoreSessions(List<StatsManager.OngoingRun> ongoingRuns) {
+        if (ongoingRuns == null || ongoingRuns.isEmpty()) {
+            return;
+        }
+
+        for (StatsManager.OngoingRun run : ongoingRuns) {
+            if (run == null) {
+                continue;
+            }
+
+            Map map = mapManager.getMap(run.mapName());
+            if (map == null || !map.isConfigured()) {
+                continue;
+            }
+
+            queueResume(run.playerId(), map, run.elapsedNanos());
+        }
     }
 
     public void saveActiveRuns() {
@@ -176,11 +193,20 @@ public class MapRuntimeManager implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        PlayerSession session = sessions.get(event.getPlayer().getUniqueId());
+        Player player = event.getPlayer();
+        PlayerSession session = sessions.get(player.getUniqueId());
         if (session != null && session.isPaused()) {
             session.resume();
         }
-        playerStates.put(event.getPlayer().getUniqueId(), new PlayerState(event.getPlayer().getLocation()));
+        playerStates.put(player.getUniqueId(), new PlayerState(player.getLocation()));
+
+        PendingRun pending = pendingResumptions.remove(player.getUniqueId());
+        if (pending != null) {
+            Map map = mapManager.getMap(pending.mapName());
+            if (map != null && map.isConfigured()) {
+                resumeRunForPlayer(player, map, pending.elapsedNanos(), true);
+            }
+        }
     }
 
     public void shutdown() {
@@ -199,6 +225,7 @@ public class MapRuntimeManager implements Listener {
         }
         sessions.clear();
         playerStates.clear();
+        pendingResumptions.clear();
     }
 
     public Map leaveTimer(Player player) {
@@ -228,19 +255,8 @@ public class MapRuntimeManager implements Listener {
         return formatMessage(leaveNoActiveMessage, values);
     }
 
-    public boolean resumeLastRun(Player player, Map map, long elapsedNanos) {
-        if (player == null || map == null || !map.isConfigured()) {
-            return false;
-        }
-
-        PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), id -> new PlayerSession());
-        session.reset();
-        session.resumeFrom(map, Math.max(0L, elapsedNanos));
-        playerStates.put(player.getUniqueId(), new PlayerState(player.getLocation()));
-        return true;
-    }
-
     public void resetPlayerSession(UUID playerId) {
+        pendingResumptions.remove(playerId);
         PlayerSession session = sessions.get(playerId);
         if (session == null) {
             return;
@@ -258,6 +274,11 @@ public class MapRuntimeManager implements Listener {
         if (mapName == null) {
             return;
         }
+
+        pendingResumptions.entrySet().removeIf(entry -> {
+            PendingRun pending = entry.getValue();
+            return pending != null && pending.mapName().equalsIgnoreCase(mapName);
+        });
 
         Iterator<java.util.Map.Entry<UUID, PlayerSession>> iterator = sessions.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -301,6 +322,46 @@ public class MapRuntimeManager implements Listener {
         }
 
         return OptionalLong.of(session.elapsedNanos());
+    }
+
+    private void queueResume(UUID playerId, Map map, long elapsedNanos) {
+        if (playerId == null || map == null || !map.isConfigured()) {
+            return;
+        }
+
+        long safeElapsed = Math.max(0L, elapsedNanos);
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            pendingResumptions.remove(playerId);
+            resumeRunForPlayer(player, map, safeElapsed, true);
+        } else {
+            pendingResumptions.put(playerId, new PendingRun(map.getName(), safeElapsed));
+        }
+    }
+
+    private void resumeRunForPlayer(Player player, Map map, long elapsedNanos, boolean notify) {
+        if (player == null || map == null) {
+            return;
+        }
+
+        PlayerSession session = sessions.computeIfAbsent(player.getUniqueId(), id -> new PlayerSession());
+        session.reset();
+        session.resumeFrom(map, Math.max(0L, elapsedNanos));
+        playerStates.put(player.getUniqueId(), new PlayerState(player.getLocation()));
+        pendingResumptions.remove(player.getUniqueId());
+
+        if (notify) {
+            notifyResume(player, map, elapsedNanos);
+        }
+    }
+
+    private void notifyResume(Player player, Map map, long nanos) {
+        if (player == null || map == null) {
+            return;
+        }
+
+        String formatted = TimeFormatter.format(Math.max(0L, nanos));
+        player.sendMessage("Ultima corsa su \"" + map.getName() + "\" ripristinata da " + formatted + ".");
     }
 
     private void handleRunningPlayer(Player player, PlayerSession session, Location from, Location to) {
@@ -610,6 +671,9 @@ public class MapRuntimeManager implements Listener {
         void update(Location location) {
             lastLocation = location == null ? null : location.clone();
         }
+    }
+
+    private record PendingRun(String mapName, long elapsedNanos) {
     }
 
     private static class PlayerSession {

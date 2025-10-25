@@ -30,6 +30,7 @@ public final class zCrono extends JavaPlugin {
         runtimeManager = new MapRuntimeManager(this, mapManager, statsManager);
         getServer().getPluginManager().registerEvents(runtimeManager, this);
         runtimeManager.startup();
+        runtimeManager.restoreSessions(statsManager.getAllOngoingRuns());
 
         PluginCommand command = getCommand("zcrono");
         if (command != null) {

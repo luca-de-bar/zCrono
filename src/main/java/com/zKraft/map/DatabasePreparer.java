@@ -25,10 +25,30 @@ public class DatabasePreparer {
                 map_key VARCHAR(128) NOT NULL,
                 player_uuid CHAR(36) NOT NULL,
                 best_nanos BIGINT NOT NULL,
-                is_run_finished TINYINT(1) NOT NULL,
                 PRIMARY KEY (map_key, player_uuid),
                 KEY idx_zcrono_map_times_map (map_key, best_nanos, player_uuid),
                 KEY idx_zcrono_map_times_player (player_uuid)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """;
+
+    private static final String CREATE_MAP_TIMES_UNCOMPLETED_TABLE = """
+            CREATE TABLE IF NOT EXISTS zcrono_map_times_uncompleted (
+                map_key VARCHAR(128) NOT NULL,
+                player_uuid CHAR(36) NOT NULL,
+                best_nanos BIGINT NOT NULL,
+                PRIMARY KEY (map_key, player_uuid),
+                KEY idx_zcrono_map_times_uncompleted_map (map_key, player_uuid)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """;
+
+    private static final String CREATE_DELETED_MAP_TIMES_TABLE = """
+            CREATE TABLE IF NOT EXISTS zcrono_deleted_map_times (
+                map_key VARCHAR(128) NOT NULL,
+                player_uuid CHAR(36) NOT NULL,
+                best_nanos BIGINT NOT NULL,
+                is_run_finished TINYINT(1) NOT NULL,
+                PRIMARY KEY (map_key, player_uuid, is_run_finished),
+                KEY idx_zcrono_deleted_map_times_map (map_key, player_uuid, is_run_finished)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """;
 
@@ -42,6 +62,8 @@ public class DatabasePreparer {
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate(CREATE_PLAYERS_TABLE);
             statement.executeUpdate(CREATE_MAP_TIMES_TABLE);
+            statement.executeUpdate(CREATE_MAP_TIMES_UNCOMPLETED_TABLE);
+            statement.executeUpdate(CREATE_DELETED_MAP_TIMES_TABLE);
         } catch (SQLException exception) {
             logger.log(Level.SEVERE, "Impossibile preparare il database di zCrono", exception);
         }

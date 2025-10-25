@@ -32,14 +32,9 @@ public class MySqlStatsStorage implements StatsStorage {
             """;
 
     private static final String UPSERT_TIME_SQL = """
-            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos, is_run_finished)
-            VALUES (?, ?, ?, 1)
-            ON DUPLICATE KEY UPDATE
-                best_nanos = CASE
-                    WHEN zcrono_map_times.is_run_finished = 1 THEN LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
-                    ELSE VALUES(best_nanos)
-                END,
-                is_run_finished = 1
+            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE best_nanos = LEAST(zcrono_map_times.best_nanos, VALUES(best_nanos))
             """;
     private static final String DELETE_PLAYER_TIME_SQL = """
             DELETE FROM zcrono_map_times
@@ -52,12 +47,7 @@ public class MySqlStatsStorage implements StatsStorage {
 
     private static final String SELECT_BEST_TIME_SQL = """
             SELECT best_nanos FROM zcrono_map_times
-            WHERE map_key = ? AND player_uuid = ? AND is_run_finished = 1
-            """;
-
-    private static final String SELECT_ONGOING_TIME_SQL = """
-            SELECT best_nanos FROM zcrono_map_times
-            WHERE map_key = ? AND player_uuid = ? AND is_run_finished = 0
+            WHERE map_key = ? AND player_uuid = ?
             """;
 
     private static final String SELECT_RANK_SQL = """
@@ -66,7 +56,7 @@ public class MySqlStatsStorage implements StatsStorage {
                        ROW_NUMBER() OVER (ORDER BY mt.best_nanos ASC, COALESCE(p.name, mt.player_uuid) ASC, mt.player_uuid ASC) AS position
                 FROM zcrono_map_times mt
                 LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-                 WHERE mt.map_key = ? AND mt.is_run_finished = 1
+            WHERE mt.map_key = ?
             )
             SELECT position FROM ordered WHERE player_uuid = ?
             """;
@@ -90,14 +80,61 @@ public class MySqlStatsStorage implements StatsStorage {
             SELECT mt.player_uuid, COALESCE(p.name, mt.player_uuid) AS player_name, mt.best_nanos
             FROM zcrono_map_times mt
             LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-            WHERE mt.map_key = ? AND mt.is_run_finished = 1
+            WHERE mt.map_key = ?
             ORDER BY mt.best_nanos ASC, player_name ASC, mt.player_uuid ASC
             """;
 
-    private static final String UPSERT_ONGOING_TIME_SQL = """
-            INSERT INTO zcrono_map_times (map_key, player_uuid, best_nanos, is_run_finished)
-            VALUES (?, ?, ?, 0)
-            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos), is_run_finished = 0
+    private static final String UPSERT_UNFINISHED_TIME_SQL = """
+            INSERT INTO zcrono_map_times_uncompleted (map_key, player_uuid, best_nanos)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos)
+            """;
+
+    private static final String DELETE_UNFINISHED_PLAYER_SQL = """
+            DELETE FROM zcrono_map_times_uncompleted
+            WHERE map_key = ? AND player_uuid = ?
+            """;
+
+    private static final String DELETE_UNFINISHED_MAP_SQL = """
+            DELETE FROM zcrono_map_times_uncompleted WHERE map_key = ?
+            """;
+
+    private static final String MOVE_FINISHED_PLAYER_SQL = """
+            INSERT INTO zcrono_deleted_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            SELECT map_key, player_uuid, best_nanos, 1
+            FROM zcrono_map_times
+            WHERE map_key = ? AND player_uuid = ?
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos)
+            """;
+
+    private static final String MOVE_UNFINISHED_PLAYER_SQL = """
+            INSERT INTO zcrono_deleted_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            SELECT map_key, player_uuid, best_nanos, 0
+            FROM zcrono_map_times_uncompleted
+            WHERE map_key = ? AND player_uuid = ?
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos)
+            """;
+
+    private static final String MOVE_FINISHED_MAP_SQL = """
+            INSERT INTO zcrono_deleted_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            SELECT map_key, player_uuid, best_nanos, 1
+            FROM zcrono_map_times
+            WHERE map_key = ?
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos)
+            """;
+
+    private static final String MOVE_UNFINISHED_MAP_SQL = """
+            INSERT INTO zcrono_deleted_map_times (map_key, player_uuid, best_nanos, is_run_finished)
+            SELECT map_key, player_uuid, best_nanos, 0
+            FROM zcrono_map_times_uncompleted
+            WHERE map_key = ?
+            ON DUPLICATE KEY UPDATE best_nanos = VALUES(best_nanos)
+            """;
+
+    private static final String SELECT_ALL_UNFINISHED_SQL = """
+            SELECT uc.map_key, uc.player_uuid, uc.best_nanos, COALESCE(p.name, uc.player_uuid) AS player_name
+            FROM zcrono_map_times_uncompleted uc
+            LEFT JOIN zcrono_players p ON p.uuid = uc.player_uuid
             """;
 
     private final Logger logger;
@@ -138,7 +175,8 @@ public class MySqlStatsStorage implements StatsStorage {
             boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try (PreparedStatement playerStatement = connection.prepareStatement(UPSERT_PLAYER_SQL);
-                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_TIME_SQL)) {
+                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_TIME_SQL);
+                 PreparedStatement deleteUnfinished = connection.prepareStatement(DELETE_UNFINISHED_PLAYER_SQL)) {
 
                 playerStatement.setString(1, playerId.toString());
                 playerStatement.setString(2, resolvedName);
@@ -148,6 +186,10 @@ public class MySqlStatsStorage implements StatsStorage {
                 timeStatement.setString(2, playerId.toString());
                 timeStatement.setLong(3, nanos);
                 timeStatement.executeUpdate();
+
+                deleteUnfinished.setString(1, normalizedMap);
+                deleteUnfinished.setString(2, playerId.toString());
+                deleteUnfinished.executeUpdate();
 
                 connection.commit();
             } catch (SQLException exception) {
@@ -167,11 +209,43 @@ public class MySqlStatsStorage implements StatsStorage {
             return false;
         }
 
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(DELETE_PLAYER_TIME_SQL)) {
-            statement.setString(1, normalizeKey(mapName));
-            statement.setString(2, playerId.toString());
-            return statement.executeUpdate() > 0;
+        String normalizedMap = normalizeKey(mapName);
+
+        try (Connection connection = getConnection()) {
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            int removed = 0;
+
+            try (PreparedStatement moveFinished = connection.prepareStatement(MOVE_FINISHED_PLAYER_SQL);
+                 PreparedStatement moveUnfinished = connection.prepareStatement(MOVE_UNFINISHED_PLAYER_SQL);
+                 PreparedStatement deleteFinished = connection.prepareStatement(DELETE_PLAYER_TIME_SQL);
+                 PreparedStatement deleteUnfinished = connection.prepareStatement(DELETE_UNFINISHED_PLAYER_SQL)) {
+
+                moveFinished.setString(1, normalizedMap);
+                moveFinished.setString(2, playerId.toString());
+                moveFinished.executeUpdate();
+
+                moveUnfinished.setString(1, normalizedMap);
+                moveUnfinished.setString(2, playerId.toString());
+                moveUnfinished.executeUpdate();
+
+                deleteFinished.setString(1, normalizedMap);
+                deleteFinished.setString(2, playerId.toString());
+                removed += deleteFinished.executeUpdate();
+
+                deleteUnfinished.setString(1, normalizedMap);
+                deleteUnfinished.setString(2, playerId.toString());
+                removed += deleteUnfinished.executeUpdate();
+
+                connection.commit();
+                return removed > 0;
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
+
         } catch (SQLException exception) {
             logger.log(Level.SEVERE, "Impossibile eliminare il tempo dal database", exception);
             return false;
@@ -183,11 +257,38 @@ public class MySqlStatsStorage implements StatsStorage {
         if (mapName == null) {
             return false;
         }
+        String normalizedMap = normalizeKey(mapName);
 
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(DELETE_MAP_TIMES_SQL)) {
-            statement.setString(1, normalizeKey(mapName));
-            return statement.executeUpdate() > 0;
+        try (Connection connection = getConnection()) {
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            int removed = 0;
+
+            try (PreparedStatement moveFinished = connection.prepareStatement(MOVE_FINISHED_MAP_SQL);
+                 PreparedStatement moveUnfinished = connection.prepareStatement(MOVE_UNFINISHED_MAP_SQL);
+                 PreparedStatement deleteFinished = connection.prepareStatement(DELETE_MAP_TIMES_SQL);
+                 PreparedStatement deleteUnfinished = connection.prepareStatement(DELETE_UNFINISHED_MAP_SQL)) {
+
+                moveFinished.setString(1, normalizedMap);
+                moveFinished.executeUpdate();
+
+                moveUnfinished.setString(1, normalizedMap);
+                moveUnfinished.executeUpdate();
+
+                deleteFinished.setString(1, normalizedMap);
+                removed += deleteFinished.executeUpdate();
+
+                deleteUnfinished.setString(1, normalizedMap);
+                removed += deleteUnfinished.executeUpdate();
+
+                connection.commit();
+                return removed > 0;
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
         } catch (SQLException exception) {
             logger.log(Level.SEVERE, "Impossibile eliminare i tempi della mappa dal database", exception);
             return false;
@@ -304,7 +405,7 @@ public class MySqlStatsStorage implements StatsStorage {
             boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try (PreparedStatement playerStatement = connection.prepareStatement(UPSERT_PLAYER_SQL);
-                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_ONGOING_TIME_SQL)) {
+                 PreparedStatement timeStatement = connection.prepareStatement(UPSERT_UNFINISHED_TIME_SQL)) {
 
                 playerStatement.setString(1, playerId.toString());
                 playerStatement.setString(2, resolvedName);
@@ -328,25 +429,27 @@ public class MySqlStatsStorage implements StatsStorage {
     }
 
     @Override
-    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
-        if (mapName == null || playerId == null) {
-            return OptionalLong.empty();
-        }
+    public List<StatsManager.OngoingRun> getAllOngoingRuns() {
+        List<StatsManager.OngoingRun> runs = new ArrayList<>();
 
         try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(SELECT_ONGOING_TIME_SQL)) {
-            statement.setString(1, normalizeKey(mapName));
-            statement.setString(2, playerId.toString());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    return OptionalLong.of(resultSet.getLong(1));
+             PreparedStatement statement = connection.prepareStatement(SELECT_ALL_UNFINISHED_SQL);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            while (resultSet.next()) {
+                String mapKey = resultSet.getString(1);
+                UUID playerId = safeUuid(resultSet.getString(2));
+                if (mapKey == null || playerId == null) {
+                    continue;
                 }
+                long nanos = resultSet.getLong(3);
+                String name = resultSet.getString(4);
+                runs.add(new StatsManager.OngoingRun(mapKey, playerId, fallbackName(playerId, name), nanos));
             }
         } catch (SQLException exception) {
-            logger.log(Level.SEVERE, "Impossibile recuperare la corsa dal database", exception);
+            logger.log(Level.SEVERE, "Impossibile recuperare le corse attive dal database", exception);
         }
-
-        return OptionalLong.empty();
+        return Collections.unmodifiableList(runs);
     }
 
     private Connection getConnection() throws SQLException {

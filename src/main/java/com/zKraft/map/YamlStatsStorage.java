@@ -30,6 +30,7 @@ public class YamlStatsStorage implements StatsStorage {
     private final File dataFile;
     private final Map<String, Map<UUID, Long>> mapTimes = new HashMap<>();
     private final Map<String, Map<UUID, Long>> ongoingRuns = new HashMap<>();
+    private final Map<String, Map<UUID, DeletedEntry>> deletedRuns = new HashMap<>();
     private final Map<UUID, String> playerNames = new HashMap<>();
     private boolean dirty;
 
@@ -43,6 +44,7 @@ public class YamlStatsStorage implements StatsStorage {
         ensureDataFolder();
         mapTimes.clear();
         ongoingRuns.clear();
+        deletedRuns.clear();
         playerNames.clear();
         dirty = false;
 
@@ -110,7 +112,7 @@ public class YamlStatsStorage implements StatsStorage {
                     try {
                         UUID uuid = UUID.fromString(uuidKey);
                         long time = mapSection.getLong(uuidKey);
-                        if (time > 0L) {
+                        if (time >= 0L) {
                             runs.put(uuid, time);
                         }
                     } catch (IllegalArgumentException ignored) {
@@ -118,6 +120,48 @@ public class YamlStatsStorage implements StatsStorage {
                 }
                 if (!runs.isEmpty()) {
                     ongoingRuns.put(normalizeKey(mapKey), runs);
+                }
+            }
+        }
+
+        ConfigurationSection deletedSection = configuration.getConfigurationSection("deleted");
+        if (deletedSection != null) {
+            for (String mapKey : deletedSection.getKeys(false)) {
+                ConfigurationSection mapSection = deletedSection.getConfigurationSection(mapKey);
+                if (mapSection == null) {
+                    continue;
+                }
+
+                Map<UUID, DeletedEntry> entries = new HashMap<>();
+                for (String uuidKey : mapSection.getKeys(false)) {
+                    ConfigurationSection entrySection = mapSection.getConfigurationSection(uuidKey);
+                    if (entrySection == null) {
+                        continue;
+                    }
+                    try {
+                        UUID uuid = UUID.fromString(uuidKey);
+                        DeletedEntry entry = new DeletedEntry();
+                        if (entrySection.contains("finished")) {
+                            long value = entrySection.getLong("finished");
+                            if (value >= 0L) {
+                                entry.setFinished(value);
+                            }
+                        }
+                        if (entrySection.contains("unfinished")) {
+                            long value = entrySection.getLong("unfinished");
+                            if (value >= 0L) {
+                                entry.setUnfinished(value);
+                            }
+                        }
+                        if (!entry.isEmpty()) {
+                            entries.put(uuid, entry);
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+
+                if (!entries.isEmpty()) {
+                    deletedRuns.put(normalizeKey(mapKey), entries);
                 }
             }
         }
@@ -152,6 +196,24 @@ public class YamlStatsStorage implements StatsStorage {
             ConfigurationSection runSection = ongoingSection.createSection(entry.getKey());
             for (Map.Entry<UUID, Long> timeEntry : entry.getValue().entrySet()) {
                 runSection.set(timeEntry.getKey().toString(), timeEntry.getValue());
+            }
+        }
+
+        ConfigurationSection deletedSection = configuration.createSection("deleted");
+        for (Map.Entry<String, Map<UUID, DeletedEntry>> entry : deletedRuns.entrySet()) {
+            ConfigurationSection mapSection = deletedSection.createSection(entry.getKey());
+            for (Map.Entry<UUID, DeletedEntry> deletedEntry : entry.getValue().entrySet()) {
+                DeletedEntry value = deletedEntry.getValue();
+                if (value == null || value.isEmpty()) {
+                    continue;
+                }
+                ConfigurationSection playerSection = mapSection.createSection(deletedEntry.getKey().toString());
+                if (value.getFinished() != null) {
+                    playerSection.set("finished", value.getFinished());
+                }
+                if (value.getUnfinished() != null) {
+                    playerSection.set("unfinished", value.getUnfinished());
+                }
             }
         }
 
@@ -204,18 +266,26 @@ public class YamlStatsStorage implements StatsStorage {
         boolean changed = false;
 
         Map<UUID, Long> times = mapTimes.get(mapKey);
-        if (times != null && times.remove(playerId) != null) {
-            changed = true;
-            if (times.isEmpty()) {
-                mapTimes.remove(mapKey);
+        if (times != null) {
+            Long removed = times.remove(playerId);
+            if (removed != null) {
+                storeDeletedTime(mapKey, playerId, removed, true);
+                changed = true;
+                if (times.isEmpty()) {
+                    mapTimes.remove(mapKey);
+                }
             }
         }
 
         Map<UUID, Long> ongoing = ongoingRuns.get(mapKey);
-        if (ongoing != null && ongoing.remove(playerId) != null) {
-            changed = true;
-            if (ongoing.isEmpty()) {
-                ongoingRuns.remove(mapKey);
+        if (ongoing != null) {
+            Long removed = ongoing.remove(playerId);
+            if (removed != null) {
+                storeDeletedTime(mapKey, playerId, removed, false);
+                changed = true;
+                if (ongoing.isEmpty()) {
+                    ongoingRuns.remove(mapKey);
+                }
             }
         }
 
@@ -240,6 +310,18 @@ public class YamlStatsStorage implements StatsStorage {
         Map<UUID, Long> removedOngoing = ongoingRuns.remove(mapKey);
         if (removed == null && removedOngoing == null) {
             return false;
+        }
+
+        if (removed != null) {
+            for (Map.Entry<UUID, Long> entry : removed.entrySet()) {
+                storeDeletedTime(mapKey, entry.getKey(), entry.getValue(), true);
+            }
+        }
+
+        if (removedOngoing != null) {
+            for (Map.Entry<UUID, Long> entry : removedOngoing.entrySet()) {
+                storeDeletedTime(mapKey, entry.getKey(), entry.getValue(), false);
+            }
         }
 
         dirty = true;
@@ -328,18 +410,34 @@ public class YamlStatsStorage implements StatsStorage {
     }
 
     @Override
-    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
-        if (mapName == null || playerId == null) {
-            return OptionalLong.empty();
+    public List<StatsManager.OngoingRun> getAllOngoingRuns() {
+        if (ongoingRuns.isEmpty()) {
+            return Collections.emptyList();
         }
 
-        Map<UUID, Long> runs = ongoingRuns.get(normalizeKey(mapName));
-        if (runs == null) {
-            return OptionalLong.empty();
+        List<StatsManager.OngoingRun> runs = new ArrayList<>();
+        for (Map.Entry<String, Map<UUID, Long>> entry : ongoingRuns.entrySet()) {
+            String mapKey = entry.getKey();
+            for (Map.Entry<UUID, Long> playerEntry : entry.getValue().entrySet()) {
+                runs.add(new StatsManager.OngoingRun(mapKey, playerEntry.getKey(), resolveName(playerEntry.getKey()), playerEntry.getValue()));
+            }
+        }
+        return Collections.unmodifiableList(runs);
+    }
+
+    private void storeDeletedTime(String mapKey, UUID playerId, long nanos, boolean finished) {
+        if (mapKey == null || playerId == null) {
+            return;
         }
 
-        Long value = runs.get(playerId);
-        return value != null ? OptionalLong.of(value) : OptionalLong.empty();
+        Map<UUID, DeletedEntry> entries = deletedRuns.computeIfAbsent(mapKey, unused -> new HashMap<>());
+        DeletedEntry entry = entries.computeIfAbsent(playerId, unused -> new DeletedEntry());
+        if (finished) {
+            entry.setFinished(nanos);
+        } else {
+            entry.setUnfinished(nanos);
+        }
+        dirty = true;
     }
 
     private Comparator<Map.Entry<UUID, Long>> leaderboardComparator() {
@@ -381,5 +479,30 @@ public class YamlStatsStorage implements StatsStorage {
 
     private String normalizeKey(String name) {
         return name.toLowerCase(Locale.ROOT);
+    }
+
+    private static class DeletedEntry {
+        private Long finished;
+        private Long unfinished;
+
+        void setFinished(Long value) {
+            finished = value;
+        }
+
+        void setUnfinished(Long value) {
+            unfinished = value;
+        }
+
+        Long getFinished() {
+            return finished;
+        }
+
+        Long getUnfinished() {
+            return unfinished;
+        }
+
+        boolean isEmpty() {
+            return finished == null && unfinished == null;
+        }
     }
 }

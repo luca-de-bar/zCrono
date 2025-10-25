@@ -48,12 +48,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-
-        if (subCommand.equals("lastrun")) {
-            handleLastRun(sender, label, args);
-            return true;
-        }
-
         if (!sender.hasPermission(PERMISSION)) {
             sender.sendMessage("Non hai il permesso per usare questo comando.");
             return true;
@@ -85,6 +79,9 @@ public class MapCommand implements CommandExecutor, TabCompleter {
             case "resetmap":
                 handleResetMap(sender, label, args);
                 break;
+            case "addtime":
+                handleAddTime(sender, label, args);
+                break;
             case "reload":
                 handleReload(sender);
                 break;
@@ -113,39 +110,6 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(message);
             }
         }
-    }
-
-    private void handleLastRun(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Solo un giocatore può ripristinare una corsa.");
-            return;
-        }
-
-        if (args.length < 2) {
-            sender.sendMessage("Uso corretto: /" + label + " lastrun <mappa>");
-            return;
-        }
-
-        Map map = manager.getMap(args[1]);
-        if (map == null) {
-            sender.sendMessage("Nessuna mappa trovata con questo nome.");
-            return;
-        }
-
-        OptionalLong ongoing = statsManager.getOngoingRun(map.getName(), player.getUniqueId());
-        if (ongoing.isEmpty() || ongoing.getAsLong() < 0L) {
-            sender.sendMessage("Non ci sono corse da ripristinare per questa mappa.");
-            return;
-        }
-
-        long nanos = ongoing.getAsLong();
-        if (!runtimeManager.resumeLastRun(player, map, nanos)) {
-            sender.sendMessage("Impossibile ripristinare la corsa. Assicurati che la mappa sia configurata.");
-            return;
-        }
-
-        String formatted = TimeFormatter.format(nanos);
-        sender.sendMessage("Ultima corsa su \"" + map.getName() + "\" ripristinata da " + formatted + ".");
     }
 
     private void handleMapSubcommand(CommandSender sender, String label, String[] args) {
@@ -229,12 +193,12 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         }
 
         Location location = player.getLocation().clone();
-        double radius = 0.0D;
+        double radius = 1.0D;
         if (args.length >= 3) {
             try {
                 radius = Integer.parseInt(args[2]);
-                if (radius < 0) {
-                    sender.sendMessage("Il radius deve essere un numero intero positivo.");
+                if (radius <= 0) {
+                    sender.sendMessage("Il radius deve essere un numero intero maggiore di zero.");
                     return;
                 }
             } catch (NumberFormatException exception) {
@@ -352,7 +316,41 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("/" + label + " resetmap <mappa> [confirm] - rimuove tutti i tempi di una mappa");
         sender.sendMessage("/" + label + " reload - ricarica la configurazione");
         sender.sendMessage("/" + label + " leave - esce dalla corsa attiva");
-        sender.sendMessage("/" + label + " lastrun <mappa> - ripristina l'ultima corsa salvata");
+        sender.sendMessage("/" + label + " addtime <mappa> <giocatore> <HH:mm:ss:ns> - aggiunge un tempo manuale");
+    }
+
+    private void handleAddTime(CommandSender sender, String label, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage("Uso corretto: /" + label + " " + args[0] + " <mappa> <giocatore> <HH:mm:ss:ns>");
+            return;
+        }
+
+        String mapName = args[1];
+        Map map = manager.getMap(mapName);
+        if (map == null) {
+            sender.sendMessage("Nessuna mappa trovata con questo nome.");
+            return;
+        }
+
+        OfflinePlayer target = Bukkit.getOfflinePlayer(args[2]);
+        UUID playerId = target.getUniqueId();
+        if (playerId == null) {
+            sender.sendMessage("Impossibile determinare l'identificativo del giocatore specificato.");
+            return;
+        }
+
+        OptionalLong nanos = parseTimeToNanos(args[3]);
+        if (nanos.isEmpty() || nanos.getAsLong() <= 0L) {
+            sender.sendMessage("Formato tempo non valido. Usa HH:mm:ss:ns con valori positivi.");
+            return;
+        }
+
+        String resolvedName = target.getName() != null ? target.getName() : args[2];
+        if (statsManager.recordManualRun(map.getName(), playerId, resolvedName, nanos.getAsLong())) {
+            sender.sendMessage("Tempo di " + resolvedName + " su \"" + map.getName() + "\" aggiornato.");
+        } else {
+            sender.sendMessage("Impossibile aggiungere il tempo specificato.");
+        }
     }
 
     private void handleReload(CommandSender sender) {
@@ -361,6 +359,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         manager.load();
         runtimeManager.reload(plugin.getConfig());
         runtimeManager.startup();
+        runtimeManager.restoreSessions(statsManager.getAllOngoingRuns());
         sender.sendMessage("Configurazione di zCrono ricaricata.");
     }
 
@@ -414,18 +413,10 @@ public class MapCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (!sender.hasPermission(PERMISSION)) {
             if (args.length == 1) {
-                List<String> subCommands = Arrays.asList("leave", "lastrun");
+                List<String> subCommands = Collections.singletonList("leave");
                 return subCommands.stream()
                         .filter(sub -> sub.toLowerCase(Locale.ROOT)
                                 .startsWith(args[0].toLowerCase(Locale.ROOT)))
-                        .collect(Collectors.toList());
-            }
-
-            if (args.length == 2 && args[0].equalsIgnoreCase("lastrun")) {
-                List<String> mapNames = manager.getMapNames();
-                return mapNames.stream()
-                        .filter(name -> name.toLowerCase(Locale.ROOT)
-                                .startsWith(args[1].toLowerCase(Locale.ROOT)))
                         .collect(Collectors.toList());
             }
 
@@ -434,7 +425,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1) {
             List<String> subCommands = Arrays.asList("create", "delete", "remove", "setstart",
-                    "setend", "map", "info", "resetplayer", "resetmap", "reload", "leave", "lastrun");
+                    "setend", "map", "info", "resetplayer", "resetmap", "addtime", "reload", "leave");
             return subCommands.stream()
                     .filter(sub -> sub.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toList());
@@ -465,7 +456,7 @@ public class MapCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 3 && (args[0].equalsIgnoreCase("setstart") || args[0].equalsIgnoreCase("setend"))) {
-            List<String> suggestions = Arrays.asList("0", "2", "3", "4", "5");
+            List<String> suggestions = Arrays.asList("1", "2", "3", "4", "5");
             return suggestions.stream()
                     .filter(value -> value.startsWith(args[2]))
                     .collect(Collectors.toList());
@@ -478,7 +469,49 @@ public class MapCommand implements CommandExecutor, TabCompleter {
                     .collect(Collectors.toList());
         }
 
+        if (args.length == 3 && args[0].equalsIgnoreCase("addtime")) {
+            return Bukkit.getOnlinePlayers().stream()
+                    .map(Player::getName)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(args[2].toLowerCase(Locale.ROOT)))
+                    .collect(Collectors.toList());
+        }
+
+        if (args.length == 4 && args[0].equalsIgnoreCase("addtime")) {
+            String suggestion = "00:00:00:000000000";
+            if (suggestion.startsWith(args[3])) {
+                return Collections.singletonList(suggestion);
+            }
+        }
+
         return Collections.emptyList();
+    }
+
+    private OptionalLong parseTimeToNanos(String input) {
+        if (input == null) {
+            return OptionalLong.empty();
+        }
+
+        String[] parts = input.split(":");
+        if (parts.length != 4) {
+            return OptionalLong.empty();
+        }
+
+        try {
+            int hours = Integer.parseInt(parts[0]);
+            int minutes = Integer.parseInt(parts[1]);
+            int seconds = Integer.parseInt(parts[2]);
+            long nanos = Long.parseLong(parts[3]);
+
+            if (hours < 0 || minutes < 0 || seconds < 0 || nanos < 0 || minutes >= 60 || seconds >= 60 || nanos >= 1_000_000_000L) {
+                return OptionalLong.empty();
+            }
+
+            long totalSeconds = Math.addExact(Math.addExact(Math.multiplyExact(hours, 3_600L), Math.multiplyExact(minutes, 60L)), seconds);
+            long totalNanos = Math.addExact(Math.multiplyExact(totalSeconds, 1_000_000_000L), nanos);
+            return OptionalLong.of(totalNanos);
+        } catch (NumberFormatException | ArithmeticException exception) {
+            return OptionalLong.empty();
+        }
     }
 
     private record Confirmation(ConfirmationType type, String mapName, long createdAt) {

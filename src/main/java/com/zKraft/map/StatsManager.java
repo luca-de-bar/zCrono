@@ -50,6 +50,15 @@ public class StatsManager {
         storage.recordRun(map.getName(), player.getUniqueId(), player.getName(), nanos);
     }
 
+    public boolean recordManualRun(String mapName, UUID playerId, String playerName, long nanos) {
+        if (storage == null || mapName == null || playerId == null || nanos <= 0L) {
+            return false;
+        }
+
+        storage.recordRun(mapName, playerId, playerName, nanos);
+        return true;
+    }
+
     public boolean resetPlayer(String mapName, UUID playerId) {
         if (storage == null || mapName == null || playerId == null) {
             return false;
@@ -85,13 +94,6 @@ public class StatsManager {
         return storage.getTopEntry(mapName, position);
     }
 
-    public List<LeaderboardEntry> getEntries(String mapName) {
-        if (storage == null || mapName == null) {
-            return Collections.emptyList();
-        }
-        return storage.getEntries(mapName);
-    }
-
     public void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos) {
         if (storage == null || mapName == null || playerId == null || nanos < 0L) {
             return;
@@ -99,11 +101,11 @@ public class StatsManager {
         storage.saveOngoingRun(mapName, playerId, playerName, nanos);
     }
 
-    public OptionalLong getOngoingRun(String mapName, UUID playerId) {
-        if (storage == null || mapName == null || playerId == null) {
-            return OptionalLong.empty();
+    public List<OngoingRun> getAllOngoingRuns() {
+        if (storage == null) {
+            return Collections.emptyList();
         }
-        return storage.getOngoingRun(mapName, playerId);
+        return storage.getAllOngoingRuns();
     }
 
     private StatsStorage createStorage() {
@@ -150,5 +152,8 @@ public class StatsManager {
     }
 
     public record LeaderboardEntry(UUID playerId, String name, long timeNanos) {
+    }
+
+    public record OngoingRun(String mapName, UUID playerId, String playerName, long elapsedNanos) {
     }
 }

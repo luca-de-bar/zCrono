@@ -28,5 +28,5 @@ public interface StatsStorage {
 
     void saveOngoingRun(String mapName, UUID playerId, String playerName, long nanos);
 
-    OptionalLong getOngoingRun(String mapName, UUID playerId);
+    List<StatsManager.OngoingRun> getAllOngoingRuns();
 }
