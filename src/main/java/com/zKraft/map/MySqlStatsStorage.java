@@ -69,7 +69,7 @@ public class MySqlStatsStorage implements StatsStorage {
                        ROW_NUMBER() OVER (ORDER BY mt.best_nanos ASC, COALESCE(p.name, mt.player_uuid) ASC, mt.player_uuid ASC) AS position
                 FROM zcrono_map_times mt
                 LEFT JOIN zcrono_players p ON p.uuid = mt.player_uuid
-                WHERE mt.map_key = ? AND mt.is_run_finished = 1
+                WHERE mt.map_key = ?
             )
             SELECT player_uuid, player_name, best_nanos
             FROM ordered
